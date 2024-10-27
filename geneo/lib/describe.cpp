@@ -305,6 +305,10 @@ std::vector<double> compute_mean_completeness(Pedigree<> &pedigree,
         }
         mean_completeness.push_back(sum / proband_ids.size());
     }
+    // Multiply by 100 to get percentages
+    for (int i = 0; i < depth; i++) {
+        mean_completeness[i] *= 100.0;
+    }
     return mean_completeness;
 }
 
