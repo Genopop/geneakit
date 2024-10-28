@@ -49,6 +49,7 @@ phi <- gen.phi(ped, pro=pro)
 mean <- gen.phiMean(phi)
 mrca <- gen.findMRCA(ped, c(802424, 868572))
 dist <- gen.find.Min.Distance.MRCA(mrca)
+out <- gen.genout(ped, sorted=TRUE)
 ```
 
 
@@ -62,6 +63,7 @@ phi = gen.phi(ped, pro=pro)
 mean = gen.phiMean(phi)
 mrca = gen.findMRCA(ped, [802424, 868572])
 dist = gen.find_Min_Distance_MRCA(mrca)
+out = gen.genout(ped, sorted=True)
 ```
 
 ## GENLIB Functions Not Included

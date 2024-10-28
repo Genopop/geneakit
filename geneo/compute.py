@@ -51,7 +51,7 @@ def f(gen, **kwargs):
         pro = cgeneo.get_proband_ids(gen)
     cmatrix = cgeneo.compute_inbreedings(gen, pro)
     inbreeding_matrix = pd.DataFrame(
-        cmatrix, index=pro, copy=False
+        cmatrix, index=pro, columns=['F'], copy=False
     )
     return inbreeding_matrix
 
