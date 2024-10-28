@@ -31,6 +31,7 @@ SOFTWARE.
 #include <unordered_set>
 #include <unordered_map>
 #include <math.h>
+#include <limits>
 #include "identify.hpp"
 #include "extract.hpp"
 #include "matrix.hpp"
@@ -90,6 +91,12 @@ double get_required_memory_for_kinships(
 Matrix<double> compute_kinships(
     Pedigree<> &pedigree, std::vector<int> proband_ids = {},
     bool verbose = false);
+
+// Returns a sparse matrix of the kinship coefficients.
+// Adapted from the algorithm from Kirkpatrick et al.
+std::tuple<std::vector<int>, std::vector<int>, std::vector<double>>
+compute_sparse_kinships(Pedigree<> &pedigree,
+    std::vector<int> proband_ids = {}, bool verbose = false);
 
 // Returns the mean kinship coefficient of a kinship matrix.
 double compute_mean_kinship(Matrix<double> &kinship_matrix);

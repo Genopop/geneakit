@@ -1,4 +1,5 @@
 import pandas as pd
+from scipy.sparse import csc_matrix
 import cgeneo
 import time
 
@@ -10,6 +11,7 @@ def phi(gen, **kwargs):
         pro = cgeneo.get_proband_ids(gen)
     verbose = kwargs.get('verbose', False)
     compute = kwargs.get('compute', True)
+    sparse = kwargs.get('sparse', False)
     if not compute:
         required_memory = cgeneo.get_required_memory_for_kinships(gen, pro)
         required_memory = round(required_memory, 2)
@@ -17,10 +19,16 @@ def phi(gen, **kwargs):
         return
     if verbose:
         begin = time.time()
-    cmatrix = cgeneo.compute_kinships(gen, pro, verbose)
-    kinship_matrix = pd.DataFrame(
-        cmatrix, index=pro, columns=pro, copy=False
-    )
+    if sparse:
+        indices, indptr, data = cgeneo.compute_sparse_kinships(
+            gen, pro, verbose)
+        kinship_matrix = csc_matrix((data, indices, indptr),
+                                    shape=(len(pro), len(pro)))
+    else:
+        cmatrix = cgeneo.compute_kinships(gen, pro, verbose)
+        kinship_matrix = pd.DataFrame(
+            cmatrix, index=pro, columns=pro, copy=False
+        )
     if verbose:
         end = time.time()
         elapsed_time = round(end - begin, 2)
@@ -29,10 +37,17 @@ def phi(gen, **kwargs):
 
 def phiMean(kinship_matrix):
     mean = 0
-    for i in range(kinship_matrix.shape[0]):
-        for j in range(i):
-            mean += kinship_matrix.iloc[i, j]
-    mean /= (kinship_matrix.shape[0] * (kinship_matrix.shape[0] - 1) / 2)
+    if type(kinship_matrix) == csc_matrix:
+        for i in range(kinship_matrix.shape[0]):
+            for j in range(i):
+                mean += kinship_matrix[j, i]
+    elif type(kinship_matrix) == pd.DataFrame:
+        for i in range(kinship_matrix.shape[0]):
+            for j in range(i):
+                mean += kinship_matrix.iloc[i, j]
+    else:
+        raise TypeError('Input must be a DataFrame or a CSC matrix.')
+    mean /= kinship_matrix.shape[0] * (kinship_matrix.shape[0] - 1) / 2
     return mean
 
 def phiOver(phiMatrix, threshold):

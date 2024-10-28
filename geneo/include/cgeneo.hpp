@@ -3,6 +3,7 @@
 #include <nanobind/stl/vector.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/make_iterator.h>
+#include <nanobind/stl/tuple.h>
 
 /*------------------------------------------------------------------------------
 MIT License
