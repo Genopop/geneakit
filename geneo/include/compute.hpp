@@ -94,12 +94,8 @@ Matrix<double> compute_kinships(
 // Returns the mean kinship coefficient of a kinship matrix.
 double compute_mean_kinship(Matrix<double> &kinship_matrix);
 
-// Returns the kinship coefficient between two individuals.
-// An implementation of the recursive algorithm from Karigl.
-double compute_kinship(const Individual<> *individual1,
-    const Individual<> *individual2);
-
 // Returns the inbreeding coefficients of a vector of individuals.
+// Copied from the article by M Sargolzaei, H Iwaisaki & J-J Colleau (2005).
 std::vector<double> compute_inbreedings(Pedigree<> &pedigree,
     std::vector<int> proband_ids);
 

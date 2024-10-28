@@ -369,55 +369,102 @@ double compute_mean_kinship(Matrix<double> &kinship_matrix) {
     return total / count;
 }
 
-// Returns the kinship coefficient between two individuals.
-// An implementation of the recursive algorithm from Karigl.
-double compute_kinship(const Individual<> *individual1,
-    const Individual<> *individual2) {
-    double kinship = 0.0;
-    if (individual1->rank == individual2->rank) {
-        // It's the same individual.
-        kinship = 0.5;
-        if (individual1->father && individual2->mother) {
-            kinship += 0.5 * compute_kinship(
-                individual1->father, individual2->mother);
+// Sort animals according to ID of their sires into SId.
+void MyQuickSort(int Ped[][2], int SId[], int size) {
+    std::function<void(int, int)> quicksort = [&](int left, int right) {
+        if (left >= right) return;
+        int pivot = SId[(left + right) / 2];
+        int i = left, j = right;
+        while (i <= j) {
+            while (Ped[SId[i]][0] < Ped[pivot][0]) i++;
+            while (Ped[SId[j]][0] > Ped[pivot][0]) j--;
+            if (i <= j) {
+                std::swap(SId[i], SId[j]);
+                i++;
+                j--;
+            }
         }
-    } else if (individual1->rank < individual2->rank) {
-        // Karigl's recursive algorithm.
-        if (individual2->father) {
-            kinship += 0.5 * compute_kinship(individual1, individual2->father);
-        }
-        if (individual2->mother) {
-            kinship += 0.5 * compute_kinship(individual1, individual2->mother);
-        }
-    } else {
-        if (individual1->father) {
-            kinship += 0.5 * compute_kinship(individual1->father, individual2);
-        }
-        if (individual1->mother) {
-            kinship += 0.5 * compute_kinship(individual1->mother, individual2);
-        }
-    }
-    return kinship;
+        quicksort(left, j);
+        quicksort(i, right);
+    };
+    quicksort(1, size - 1); // Correctly pass the size of the array
 }
 
 // Returns the inbreeding coefficients of a vector of individuals.
+// Copied from the article by M Sargolzaei, H Iwaisaki & J-J Colleau (2005).
 std::vector<double> compute_inbreedings(Pedigree<> &pedigree,
     std::vector<int> proband_ids) {
-    std::vector<double> inbreeding_coefficients;
-    if (proband_ids.empty()) {
-        proband_ids = get_proband_ids(pedigree);
-    }
-    for (const int id : proband_ids) {
-        Individual<> *individual = pedigree.individuals.at(id);
-        if (!individual->father || !individual->mother) {
-            double inbreeding = 0.0;
-            inbreeding_coefficients.push_back(inbreeding);
-        } else {
-            double inbreeding = compute_kinship(
-                individual->father, individual->mother
-            );
-            inbreeding_coefficients.push_back(inbreeding);
+    std::vector<double> inbreeding_coefficients(proband_ids.size());
+    Pedigree<> extracted_pedigree = extract_pedigree(pedigree, proband_ids, {});
+    // n = number of animals in total; m = number of sires and dams in total
+    int n = extracted_pedigree.ids.size(), m = 0;
+    for (const int id : extracted_pedigree.ids) {
+        Individual<> *individual = extracted_pedigree.individuals.at(id);
+        if (!individual->children.empty()) {
+            m++;
         }
+    }
+    int i, j, k, rN, rS, S, D, MIP; // integer variables.
+    int Ped[n + 1][2], rPed[m + 1][2]; // main and reduced pedigrees, respectively
+    int SId[n + 1]; // will contain the sorted animals ID based on the ID of their sires
+    int Link[n + 1]; // will contain new ID of ancestors at position of their original ID
+    int MaxIdP[m + 1]; // will contain maximum new ID of parents for each paternal
+    // group at position of the new ID of each sire
+    double F[n + 1], B[m + 1], x[m + 1]; // inbreeding coefficients, within family
+    // segregation variances and x arrays, respectively
+
+    for (i = 1; i <= n; ++i) {
+        const int id = extracted_pedigree.ids.at(i - 1);
+        Individual<> *father = extracted_pedigree.individuals.at(id)->father;
+        Individual<> *mother = extracted_pedigree.individuals.at(id)->mother;
+        Ped[i][0] = father ? father->rank + 1 : 0;
+        Ped[i][1] = mother ? mother->rank + 1 : 0;
+    }
+
+    F[0] = -1.0, x[0] = 0.0, Link[0] = 0; // set values for the unknown parent
+    for (rN = i = 1; i <= n; ++i) { // extract and recode ancestors
+        SId[i] = i, Link[i] = 0; if (i <= m) x[i] = 0.0; // initialization
+        S = Ped[i][0], D = Ped[i][1];
+        if (S&& !Link[S]) {
+            MaxIdP[rN] = Link[S] = rN;
+            rPed[rN][0] = Link[Ped[S][0]];
+            rPed[rN++][1] = Link[Ped[S][1]];
+        }
+        if (D&& !Link[D]) {
+            Link[D] = rN;
+            rPed[rN][0] = Link[Ped[D][0]];
+            rPed[rN++][1] = Link[Ped[D][1]];
+        }
+        if (MaxIdP[Link[S]] < Link[D]) MaxIdP[Link[S]] = Link[D]; // determine
+        // maximum ID of parents for each paternal group
+    }
+    MyQuickSort(Ped, SId, n); // sort animals according to ID of their sires into SId
+    for (k = i = 1; i <= n;) { // do from the oldest sire to the youngest sire
+        if (!Ped[SId[i]][0]) F[SId[i++]] = 0.0; // sire is not known
+        else {
+            S = Ped[SId[i]][0], rS = Link[S], MIP = MaxIdP[rS];
+            x[rS] = 1.0;
+            for (; k <= S; ++k) // compute within family segregation variances
+                if (Link[k]) B[Link[k]] = 0.5 - 0.25 * (F[Ped[k][0]] + F[Ped[k][1]]);
+            for (j = rS; j; --j) { // trace back the reduced pedigree
+                if (x[j]) { // consider only ancestors of the sire
+                    if (rPed[j][0]) x[rPed[j][0]] += x[j] * 0.5;
+                    if (rPed[j][1]) x[rPed[j][1]] += x[j] * 0.5;
+                    x[j] *= B[j];
+                }
+            }
+            for (j = 1; j <= MIP; ++j) // trace forth the reduced pedigree
+                x[j] += (x[rPed[j][0]] + x[rPed[j][1]]) * 0.5;
+            for (; i <= n; ++i) // obtain F for progeny of the current sire
+                if (S != Ped[SId[i]][0]) break;
+                else F[SId[i]] = x[Link[Ped[SId[i]][1]]] * 0.5;
+            for (j = 1; j <= MIP; ++j) x[j] = 0.0; // set to 0 for next evaluation of sire
+        }
+    }
+    for (i = 0; i < proband_ids.size(); i++) {
+        const int id = proband_ids[i];
+        Individual<> *individual = extracted_pedigree.individuals.at(id);
+        inbreeding_coefficients[i] = F[individual->rank + 1];
     }
     return inbreeding_coefficients;
 }

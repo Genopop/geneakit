@@ -221,8 +221,7 @@ NB_MODULE(cgeneo, m) {
     m.def("compute_individual_completeness", [] (Pedigree<> &pedigree,
         std::vector<int> proband_ids) {
             Matrix<double> completeness_matrix =
-                compute_individual_completeness(
-                    pedigree, proband_ids);
+                compute_individual_completeness(pedigree, proband_ids);
             double *data = completeness_matrix.data();
             nb::capsule owner(data, [](void *data) noexcept {
                 delete[] (double *) data;
