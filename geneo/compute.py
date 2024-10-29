@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from scipy.sparse import csc_matrix
 import cgeneo
@@ -23,12 +24,12 @@ def phi(gen, **kwargs):
         indices, indptr, data = cgeneo.compute_sparse_kinships(
             gen, pro, verbose)
         kinship_matrix = csc_matrix((data, indices, indptr),
-                                    shape=(len(pro), len(pro)))
+                                    shape=(len(pro), len(pro)),
+                                    dtype=np.float32)
     else:
         cmatrix = cgeneo.compute_kinships(gen, pro, verbose)
         kinship_matrix = pd.DataFrame(
-            cmatrix, index=pro, columns=pro, copy=False
-        )
+            cmatrix, index=pro, columns=pro, copy=False)
     if verbose:
         end = time.time()
         elapsed_time = round(end - begin, 2)
@@ -66,8 +67,7 @@ def f(gen, **kwargs):
         pro = cgeneo.get_proband_ids(gen)
     cmatrix = cgeneo.compute_inbreedings(gen, pro)
     inbreeding_matrix = pd.DataFrame(
-        cmatrix, index=pro, columns=['F'], copy=False
-    )
+        cmatrix, index=pro, columns=['F'], copy=False)
     return inbreeding_matrix
 
 def gc(pedigree, **kwargs):
@@ -79,6 +79,5 @@ def gc(pedigree, **kwargs):
         ancestors = cgeneo.get_founder_ids(pedigree)
     cmatrix = cgeneo.compute_genetic_contributions(pedigree, pro, ancestors)
     kinship_matrix = pd.DataFrame(
-        cmatrix, index=pro, columns=ancestors, copy=False
-    )
+        cmatrix, index=pro, columns=ancestors, copy=False)
     return kinship_matrix

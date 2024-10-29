@@ -94,7 +94,7 @@ Matrix<double> compute_kinships(
 
 // Returns a sparse matrix of the kinship coefficients.
 // Adapted from the algorithm from Kirkpatrick et al.
-std::tuple<std::vector<int>, std::vector<int>, std::vector<double>>
+std::tuple<std::vector<int>, std::vector<int>, std::vector<float>>
 compute_sparse_kinships(Pedigree<> &pedigree,
     std::vector<int> proband_ids = {}, bool verbose = false);
 
