@@ -174,21 +174,21 @@ std::vector<int> get_ancestor_ids(Pedigree<> &pedigree,
     std::vector<int> ids) {
     std::vector<int> ancestor_ids;
     phmap::flat_hash_set<int> set;
-    std::deque<int> queue;
+    std::queue<int> queue;
     for (const int id : ids) {
-        queue.push_back(id);
+        queue.push(id);
     }
     while (!queue.empty()) {
         const int id = queue.front();
-        queue.pop_front();
+        queue.pop();
         Individual<> *individual = pedigree.individuals.at(id);
         if (individual->father) {
             set.insert(individual->father->id);
-            queue.push_back(individual->father->id);
+            queue.push(individual->father->id);
         }
         if (individual->mother) {
             set.insert(individual->mother->id);
-            queue.push_back(individual->mother->id);
+            queue.push(individual->mother->id);
         }
     }
     for (const int id : set) {
@@ -203,21 +203,21 @@ std::vector<int> get_ancestor_ids(Pedigree<> &pedigree,
 std::vector<int> get_all_ancestor_ids(Pedigree<> &pedigree,
     std::vector<int> ids) {
     std::vector<int> ancestor_ids;
-    std::deque<int> queue;
+    std::queue<int> queue;
     for (const int id : ids) {
-        queue.push_back(id);
+        queue.push(id);
     }
     while (!queue.empty()) {
         const int id = queue.front();
-        queue.pop_front();
+        queue.pop();
         Individual<> *individual = pedigree.individuals.at(id);
         if (individual->father) {
             ancestor_ids.push_back(individual->father->id);
-            queue.push_back(individual->father->id);
+            queue.push(individual->father->id);
         }
         if (individual->mother) {
             ancestor_ids.push_back(individual->mother->id);
-            queue.push_back(individual->mother->id);
+            queue.push(individual->mother->id);
         }
     }
     // Sort the ancestors by ID
@@ -230,17 +230,17 @@ std::vector<int> get_descendant_ids(Pedigree<> &pedigree,
     std::vector<int> ids) {
     std::vector<int> descendant_ids;
     phmap::flat_hash_set<int> set;
-    std::deque<int> queue;
+    std::queue<int> queue;
     for (const int id : ids) {
-        queue.push_back(id);
+        queue.push(id);
     }
     while (!queue.empty()) {
         const int id = queue.front();
-        queue.pop_front();
+        queue.pop();
         Individual<> *individual = pedigree.individuals.at(id);
         for (Individual<> *child : individual->children) {
             set.insert(child->id);
-            queue.push_back(child->id);
+            queue.push(child->id);
         }
     }
     for (const int id : set) {
@@ -255,17 +255,17 @@ std::vector<int> get_descendant_ids(Pedigree<> &pedigree,
 std::vector<int> get_all_descendant_ids(Pedigree<> &pedigree,
     std::vector<int> ids) {
     std::vector<int> descendant_ids;
-    std::deque<int> queue;
+    std::queue<int> queue;
     for (const int id : ids) {
-        queue.push_back(id);
+        queue.push(id);
     }
     while (!queue.empty()) {
         const int id = queue.front();
-        queue.pop_front();
+        queue.pop();
         Individual<> *individual = pedigree.individuals.at(id);
         for (Individual<> *child : individual->children) {
             descendant_ids.push_back(child->id);
-            queue.push_back(child->id);
+            queue.push(child->id);
         }
     }
     // Sort the descendants by ID

@@ -26,7 +26,7 @@ SOFTWARE.
 ------------------------------------------------------------------------------*/
 
 #include <vector>
-#include <deque>
+#include <queue>
 #include <set>
 #include <algorithm>
 #include "pedigree.hpp"

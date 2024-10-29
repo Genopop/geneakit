@@ -26,7 +26,7 @@ SOFTWARE.
 ------------------------------------------------------------------------------*/
 
 #include <vector>
-#include <deque>
+#include <queue>
 #include <set>
 #include <math.h>
 #include <cstdint>

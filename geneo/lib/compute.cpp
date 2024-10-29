@@ -381,15 +381,15 @@ compute_sparse_kinships(Pedigree<> &pedigree,
         proband->data.children_to_process = 255;
     }
     std::vector<int> ranks_to_visit(1, 0);
-    std::deque<Individual<Remainder> *> queue;
+    std::queue<Individual<Remainder> *> queue;
     for (const int id : get_founder_ids(extracted_pedigree)) {
-        queue.push_back(kinship_pedigree.individuals.at(id));
+        queue.push(kinship_pedigree.individuals.at(id));
     }
     // Compute the kinship coefficients
     if (verbose) printf("Computing the kinship matrix...\n");
     while (!queue.empty()) {
         Individual<Remainder> *individual = queue.front();
-        queue.pop_front();
+        queue.pop();
         individual->rank = i;
         father = individual->father ? individual->father->rank : 0;
         mother = individual->mother ? individual->mother->rank : 0;
@@ -459,7 +459,7 @@ compute_sparse_kinships(Pedigree<> &pedigree,
         }
         for (Individual<Remainder> *child : individual->children) {
             if (!--child->data.parents_to_process) {
-                queue.push_back(child);
+                queue.push(child);
             }
         }
         i++;
