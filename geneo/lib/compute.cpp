@@ -357,6 +357,7 @@ Matrix<double> compute_kinships(Pedigree<> &pedigree,
 
 // Returns a sparse matrix of the kinship coefficients.
 // Adapted from the algorithm from Kirkpatrick et al.
+// Inspired by the implementation from lineagekit by Serdiuk Andrii et al.
 std::tuple<std::vector<int>, std::vector<int>, std::vector<float>>
 compute_sparse_kinships(Pedigree<> &pedigree,
     std::vector<int> proband_ids, bool verbose) {
@@ -364,97 +365,121 @@ compute_sparse_kinships(Pedigree<> &pedigree,
     if (proband_ids.empty()) proband_ids = get_proband_ids(pedigree);
     // Extract the relevant individuals from the pedigree
     Pedigree<> extracted_pedigree = extract_pedigree(pedigree, proband_ids);
-    // Convert the pedigree to a kinship pedigree
-    int n = extracted_pedigree.ids.size();
-    int S, D, MinId, MaxId; // IDs of the parents (sire and dam) and min/max
+    // Convert the pedigree to a pedigree matrix
+    int i, j, S, D, n = extracted_pedigree.ids.size();
     int Ped[n + 1][2], c[n + 1]; // Pedigree and number of children
     float phi; // Kinship coefficient
     // Fill the pedigree matrix
     Ped[0][0] = 0, Ped[0][1] = 0, c[0] = 0; // Initialize the unknown parent
-    for (int i = 1; i <= n; i++) {
-        const int id = extracted_pedigree.ids.at(i - 1);
-        Individual<> *individual = extracted_pedigree.individuals.at(id);
+    for (auto const& [id, individual] : extracted_pedigree.individuals) {
+        i = individual->rank + 1;
         Individual<> *father = individual->father;
         Individual<> *mother = individual->mother;
         Ped[i][0] = father ? father->rank + 1 : 0;
         Ped[i][1] = mother ? mother->rank + 1 : 0;
         c[i] = individual->children.size();
     }
-    for (int id : proband_ids) {
+    for (const int id : proband_ids) {
         Individual<> *individual = extracted_pedigree.individuals.at(id);
         c[individual->rank + 1] = std::numeric_limits<int>::max();
     }
     // Initialize the sparse kinship matrix
-    std::unordered_map<int, std::unordered_map<int, float>> kinship_matrix;
+    phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>> kinship_matrix;
     // Compute the kinship coefficients
     if (verbose) printf("Computing the kinship matrix...\n");
-    for (int i = 1; i <= n; i++) {
-        kinship_matrix.emplace(i, std::unordered_map<int, float>());
+    for (i = 1; i <= n; i++) {
+        kinship_matrix.emplace(i, phmap::flat_hash_map<int, float>());
         S = Ped[i][0];
         D = Ped[i][1];
-        for (int j = 1; j < i; j++) {
+        // Kinship with others
+        for (j = 1; j < i; j++) {
             if (!c[j]) continue;
             phi = 0.0f;
             if (S) {
-                MinId = std::min(j, S); MaxId = std::max(j, S);
-                if (kinship_matrix.at(MinId).find(MaxId) !=
-                    kinship_matrix.at(MinId).end()) {
-                    phi += 0.5f * kinship_matrix.at(MinId).at(MaxId);
+                if (j < S) {
+                    auto& kinship = kinship_matrix.at(j);
+                    if (kinship.find(S) != kinship.end()) {
+                        phi += 0.5f * kinship.at(S);
+                    }
+                } else {
+                    auto& kinship = kinship_matrix.at(S);
+                    if (kinship.find(j) != kinship.end()) {
+                        phi += 0.5f * kinship.at(j);
+                    }
                 }
             }
             if (D) {
-                MinId = std::min(j, D); MaxId = std::max(j, D);
-                if (kinship_matrix.at(MinId).find(MaxId) !=
-                    kinship_matrix.at(MinId).end()) {
-                    phi += 0.5f * kinship_matrix.at(MinId).at(MaxId);
+                if (j < D) {
+                    auto& kinship = kinship_matrix.at(j);
+                    if (kinship.find(D) != kinship.end()) {
+                        phi += 0.5f * kinship.at(D);
+                    }
+                } else {
+                    auto& kinship = kinship_matrix.at(D);
+                    if (kinship.find(j) != kinship.end()) {
+                        phi += 0.5f * kinship.at(j);
+                    }
                 }
             }
             if (phi > 0.0f) kinship_matrix.at(j).emplace(i, phi);
         }
+        // Kinship with oneself
         phi = 0.5f;
         if (S && D) {
-            MinId = std::min(S, D); MaxId = std::max(S, D);
-            if (kinship_matrix.at(MinId).find(MaxId) !=
-                kinship_matrix.at(MinId).end()) {
-                phi += 0.5f * kinship_matrix.at(MinId).at(MaxId);
+            if (S < D) {
+                auto& kinship = kinship_matrix.at(S);
+                if (kinship.find(D) != kinship.end()) {
+                    phi += 0.5f * kinship.at(D);
+                }
+            } else {
+                auto& kinship = kinship_matrix.at(D);
+                if (kinship.find(S) != kinship.end()) {
+                    phi += 0.5f * kinship.at(S);
+                }
             }
         }
         kinship_matrix.at(i).emplace(i, phi);
-        // Decrease children counter
+        // Decrease children counter and erase parent if no children left
         if (S && !--c[S]) {
-            for (int k = 1; k < S; k++) {
-                if (c[k]) kinship_matrix.at(k).erase(S);
+            for (j = 1; j < S; j++) {
+                if (c[j]) kinship_matrix.at(j).erase(S);
             }
             kinship_matrix.erase(S);
         }
         if (D && !--c[D]) {
-            for (int k = 1; k < D; k++) {
-                if (c[k]) kinship_matrix.at(k).erase(D);
+            for (j = 1; j < D; j++) {
+                if (c[j]) kinship_matrix.at(j).erase(D);
             }
             kinship_matrix.erase(D);
         }
     }
     if (verbose) printf("Conversion to sparse matrix...\n");
-    std::vector<int> index, indptr; std::vector<float> data; // Initialize data
-    indptr.push_back(0);
-    for (int i = 0; i < proband_ids.size(); i++) {
+    std::vector<int> indices, indptr(1, 0); std::vector<float> data;
+    for (i = 0; i < proband_ids.size(); i++) {
         int id1 = proband_ids[i];
         Individual<> *individual1 = extracted_pedigree.individuals.at(id1);
-        for (int j = 0; j <= i; j++) {
+        for (j = 0; j <= i; j++) {
             int id2 = proband_ids[j];
             Individual<> *individual2 = extracted_pedigree.individuals.at(id2);
-            MinId = std::min(individual1->rank + 1, individual2->rank + 1);
-            MaxId = std::max(individual1->rank + 1, individual2->rank + 1);
-            if (kinship_matrix.at(MinId).find(MaxId) !=
-                kinship_matrix.at(MinId).end()) {
-                index.push_back(j);
-                data.push_back(kinship_matrix.at(MinId).at(MaxId));
-                kinship_matrix.at(MinId).erase(MaxId);
+            if (individual1->rank < individual2->rank) {
+                auto& kinship = kinship_matrix.at(individual1->rank + 1);
+                if (kinship.find(individual2->rank + 1) != kinship.end()) {
+                    indices.push_back(j);
+                    data.push_back(kinship.at(individual2->rank + 1));
+                    kinship.erase(individual2->rank + 1);
+                }
+            } else {
+                auto& kinship = kinship_matrix.at(individual2->rank + 1);
+                if (kinship.find(individual1->rank + 1) != kinship.end()) {
+                    indices.push_back(j);
+                    data.push_back(kinship.at(individual1->rank + 1));
+                    kinship.erase(individual1->rank + 1);
+                }
             }
         }
-        indptr.push_back(index.size());
+        indptr.push_back(indices.size());
     }
-    return {index, indptr, data};
+    return {indices, indptr, data};
 }
 
 // Returns the mean kinship coefficient of a kinship matrix.

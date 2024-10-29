@@ -29,9 +29,9 @@ SOFTWARE.
 #include <deque>
 #include <set>
 #include <unordered_set>
-#include <unordered_map>
 #include <math.h>
 #include <limits>
+#include <parallel_hashmap/phmap.h>
 #include "identify.hpp"
 #include "extract.hpp"
 #include "matrix.hpp"
