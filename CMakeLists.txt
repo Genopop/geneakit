@@ -15,7 +15,7 @@ if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 # Link to external/include/parallel_hashmap/phmap.h
-include_directories(${CMAKE_SOURCE_DIR}/external/include)
+include_directories(${CMAKE_SOURCE_DIR}/external)
 
 set(CMAKE_CXX_FLAGS_DEBUG "-g")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
