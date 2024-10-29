@@ -422,7 +422,7 @@ std::vector<int> get_number_of_descendants(Pedigree<> &pedigree,
         proband_ids = get_proband_ids(pedigree);
     }
     std::vector<int> number_of_descendants;
-    std::unordered_set<int> set1;
+    std::set<int> set1;
     for (const int id : proband_ids) {
         set1.insert(id);
     }
@@ -430,7 +430,7 @@ std::vector<int> get_number_of_descendants(Pedigree<> &pedigree,
         std::vector<int> descendant_ids = get_descendant_ids(
             pedigree, std::vector<int>(1, id)
         );
-        std::unordered_set<int> set2;
+        std::set<int> set2;
         std::vector<int> intersection_result;
         for (const int id : descendant_ids) {
             set2.insert(id);

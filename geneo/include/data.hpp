@@ -99,4 +99,14 @@ struct PathLength {
     }
 };
 
+// A structure to compute sparse kinships.
+struct Remainder {
+    mutable unsigned char parents_to_process;
+    mutable unsigned char children_to_process;
+    Remainder() {
+        parents_to_process = 0;
+        children_to_process = 0;
+    }
+};
+
 #endif

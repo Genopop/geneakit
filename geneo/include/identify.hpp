@@ -28,7 +28,6 @@ SOFTWARE.
 #include <vector>
 #include <deque>
 #include <set>
-#include <unordered_set>
 #include <algorithm>
 #include "pedigree.hpp"
 #include "matrix.hpp"

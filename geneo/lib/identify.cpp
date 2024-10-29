@@ -154,7 +154,7 @@ std::vector<int> get_sibling_ids(Pedigree<> &pedigree,
 std::vector<int> get_children_ids(Pedigree<> &pedigree,
     std::vector<int> ids) {
     std::vector<int> children_ids;
-    std::unordered_set<int> set;
+    phmap::flat_hash_set<int> set;
     for (int id : ids) {
         Individual<> *individual = pedigree.individuals.at(id);
         for (Individual<> *child : individual->children) {
@@ -173,7 +173,7 @@ std::vector<int> get_children_ids(Pedigree<> &pedigree,
 std::vector<int> get_ancestor_ids(Pedigree<> &pedigree,
     std::vector<int> ids) {
     std::vector<int> ancestor_ids;
-    std::unordered_set<int> set;
+    phmap::flat_hash_set<int> set;
     std::deque<int> queue;
     for (const int id : ids) {
         queue.push_back(id);
@@ -229,7 +229,7 @@ std::vector<int> get_all_ancestor_ids(Pedigree<> &pedigree,
 std::vector<int> get_descendant_ids(Pedigree<> &pedigree,
     std::vector<int> ids) {
     std::vector<int> descendant_ids;
-    std::unordered_set<int> set;
+    phmap::flat_hash_set<int> set;
     std::deque<int> queue;
     for (const int id : ids) {
         queue.push_back(id);

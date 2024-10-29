@@ -28,8 +28,8 @@ SOFTWARE.
 #include <vector>
 #include <deque>
 #include <set>
-#include <unordered_set>
 #include <math.h>
+#include <cstdint>
 #include <limits>
 #include <parallel_hashmap/phmap.h>
 #include "identify.hpp"

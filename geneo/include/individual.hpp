@@ -37,7 +37,7 @@ enum Sex {
 // A structure to represent an individual.
 template <typename T = Empty>
 struct Individual {
-    int rank;
+    mutable int rank;
     int id;
     Individual<T> *father;
     Individual<T> *mother;
