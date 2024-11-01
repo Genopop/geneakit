@@ -335,6 +335,24 @@ NB_MODULE(cgeneo, m) {
         nb::rv_policy::take_ownership,
         "Returns the kinship matrix of a pedigree.");
 
+    m.def("compute_mean_meioses_matrix", [] (Pedigree<> &pedigree,
+        std::vector<int> proband_ids, bool verbose) {
+            Matrix<double> meioses_matrix = compute_mean_meioses_matrix(
+                pedigree, proband_ids, verbose
+            );
+            double *data = meioses_matrix.data();
+            nb::capsule owner(data, [](void *data) noexcept {
+                delete[] (double *) data;
+            });
+            return nb::ndarray<nb::numpy, double, nb::ndim<2>>(
+                data,
+                {meioses_matrix.rows(), meioses_matrix.cols()},
+                owner
+            );
+        },
+        nb::rv_policy::take_ownership,
+        "Returns the kinship matrix of a pedigree.");
+
     m.def("compute_genetic_contributions", [] (Pedigree<> &pedigree,
         std::vector<int> proband_ids, std::vector<int> ancestor_ids) {
             Matrix<double> contribution_matrix = compute_genetic_contributions(

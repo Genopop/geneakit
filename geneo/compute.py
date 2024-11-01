@@ -75,9 +75,19 @@ def meioses(gen, **kwargs):
     if pro is None:
         pro = cgeneo.get_proband_ids(gen)
     verbose = kwargs.get('verbose', False)
-    cmatrix = cgeneo.compute_meioses_matrix(gen, pro, verbose)
+    type = kwargs.get('type', 'MIN')
+    if verbose:
+        begin = time.time()
+    if type == 'MIN':
+        cmatrix = cgeneo.compute_meioses_matrix(gen, pro, verbose)
+    elif type == 'MEAN':
+        cmatrix = cgeneo.compute_mean_meioses_matrix(gen, pro, verbose)
     meioses_matrix = pd.DataFrame(
         cmatrix, index=pro, columns=pro, copy=False)
+    if verbose:
+        end = time.time()
+        elapsed_time = round(end - begin, 2)
+        print(f'Elapsed time: {elapsed_time} seconds')
     return meioses_matrix
 
 def gc(pedigree, **kwargs):
