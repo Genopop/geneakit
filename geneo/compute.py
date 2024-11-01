@@ -70,6 +70,16 @@ def f(gen, **kwargs):
         cmatrix, index=pro, columns=['F'], copy=False)
     return inbreeding_matrix
 
+def meioses(gen, **kwargs):
+    pro = kwargs.get('pro', None)
+    if pro is None:
+        pro = cgeneo.get_proband_ids(gen)
+    verbose = kwargs.get('verbose', False)
+    cmatrix = cgeneo.compute_meioses_matrix(gen, pro, verbose)
+    meioses_matrix = pd.DataFrame(
+        cmatrix, index=pro, columns=pro, copy=False)
+    return meioses_matrix
+
 def gc(pedigree, **kwargs):
     pro = kwargs.get('pro', None)
     ancestors = kwargs.get('ancestors', None)

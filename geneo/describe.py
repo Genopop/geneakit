@@ -121,7 +121,7 @@ def rec(gen, **kwargs):
         data, index=ancestors, columns=['coverage'], copy=False)
     return coverage
 
-def findDistance(gen, individuals, ancestors):
+def findDistance(gen, individuals, ancestor):
     distance = cgeneo.get_min_common_ancestor_path_length(
-        gen, individuals[0], individuals[1], ancestors)
+        gen, individuals[0], individuals[1], ancestor)
     return distance
