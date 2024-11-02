@@ -123,35 +123,21 @@ void compute_meioses_between_probands(
 Matrix<char> compute_meioses_matrix(Pedigree<> &pedigree,
     std::vector<int> proband_ids, bool verbose);
 
-// Returns the meioses between two individuals.
+// Returns the relationship coefficient between two individuals.
 // A modified version of the recursive kinship algorithm from Karigl.
-double compute_meioses_sum(
+double compute_relationship(
     const Individual<Index> *individual1,
     const Individual<Index> *individual2,
     Matrix<double> &founder_matrix);
 
-// Returns the meioses between two individuals.
-// A modified version of the recursive kinship algorithm from Karigl.
-int compute_meioses_count(
-    const Individual<Index> *individual1,
-    const Individual<Index> *individual2,
-    Matrix<int> &founder_matrix);
-
-// Compute the meioses between the individuals
-void compute_meioses_sum_between_probands(
+// Compute the relationship coefficients between the individuals
+void compute_relationships_between_probands(
     std::vector<Individual<Index> *> &vertex_cut,
-    Matrix<double> &founder_matrix_sum,
-    Matrix<double> &proband_matrix_sum);
+    Matrix<double> &founder_matrix,
+    Matrix<double> &proband_matrix);
 
-// Compute the meioses between the individuals
-void compute_meioses_count_between_probands(
-    std::vector<Individual<Index> *> &vertex_cut,
-    Matrix<int> &founder_matrix_count,
-    Matrix<int> &proband_matrix_count);
-
-
-// Returns the meioses matrix using the algorithm from Morin et al.
-Matrix<double> compute_mean_meioses_matrix(Pedigree<> &pedigree,
+// Returns the matrix of relationship coefficients.
+Matrix<double> compute_relationships(Pedigree<> &pedigree,
     std::vector<int> proband_ids, bool verbose);
 
 // Adds the contribution of an individual.
