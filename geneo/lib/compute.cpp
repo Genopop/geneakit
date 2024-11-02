@@ -748,11 +748,11 @@ Matrix<char> compute_meioses_matrix(Pedigree<> &pedigree,
 
 // Returns the meioses between two individuals.
 // A modified version of the recursive kinship algorithm from Karigl.
-double compute_mean_meioses(
+double compute_meioses_sum(
     const Individual<Index> *individual1,
     const Individual<Index> *individual2,
     Matrix<double> &founder_matrix) {
-    double paternal = 127, maternal = 127;
+    double paternal = -1, maternal = -1;
     const int founder_index1 = individual1->data.index;
     const int founder_index2 = individual2->data.index;
     if (founder_index1 != -1 && founder_index2 != -1) {
@@ -762,21 +762,21 @@ double compute_mean_meioses(
         // The kinship coefficient was computed between individual 1
         // and the parents of individual 2.
         if (individual2->father) {
-            paternal = compute_mean_meioses(
+            paternal = compute_meioses_sum(
                 individual1, individual2->father, founder_matrix);
         }
         if (individual2->mother) {
-            maternal = compute_mean_meioses(
+            maternal = compute_meioses_sum(
                 individual1, individual2->mother, founder_matrix);
         }
     } else if (founder_index2 != -1) {
         // Vice versa.
         if (individual1->father) {
-            paternal = compute_mean_meioses(
+            paternal = compute_meioses_sum(
                 individual1->father, individual2, founder_matrix);
         }
         if (individual1->mother) {
-            maternal = compute_mean_meioses(
+            maternal = compute_meioses_sum(
                 individual1->mother, individual2, founder_matrix);
         }
     } else if (individual1->rank == individual2->rank) {
@@ -785,53 +785,134 @@ double compute_mean_meioses(
     } else if (individual1->rank < individual2->rank) {
         // Karigl's recursive algorithm.
         if (individual2->father) {
-            paternal = compute_mean_meioses(
+            paternal = compute_meioses_sum(
                 individual1, individual2->father, founder_matrix);
         }
         if (individual2->mother) {
-            maternal = compute_mean_meioses(
+            maternal = compute_meioses_sum(
                 individual1, individual2->mother, founder_matrix);
         }
     } else {
         if (individual1->father) {
-            paternal = compute_mean_meioses(
+            paternal = compute_meioses_sum(
                 individual1->father, individual2, founder_matrix);
         }
         if (individual1->mother) {
-            maternal = compute_mean_meioses(
+            maternal = compute_meioses_sum(
                 individual1->mother, individual2, founder_matrix);
         }
     }
-    if (paternal == 127 && maternal == 127) {
-        return 127;
-    } else if (paternal == 127 && maternal != 127) {
+    if (paternal == -1 && maternal == -1) {
+        return -1;
+    } else if (paternal == -1 && maternal > -1) {
         return 1 + maternal;
-    } else if (paternal != 127 && maternal == 127) {
+    } else if (paternal > -1 && maternal == -1) {
         return 1 + paternal;
     } else {
-        return 1 + (paternal + maternal) / 2;
+        return 2 + paternal + maternal;
     }
 }
 
+// Returns the meioses between two individuals.
+// A modified version of the recursive kinship algorithm from Karigl.
+int compute_meioses_count(
+    const Individual<Index> *individual1,
+    const Individual<Index> *individual2,
+    Matrix<int> &founder_matrix) {
+    int paternal = 0, maternal = 0;
+    const int founder_index1 = individual1->data.index;
+    const int founder_index2 = individual2->data.index;
+    if (founder_index1 != -1 && founder_index2 != -1) {
+        // The kinship coefficient is stored in the founder matrix.
+        return founder_matrix[founder_index1][founder_index2];
+    } else if (founder_index1 != -1) {
+        // The kinship coefficient was computed between individual 1
+        // and the parents of individual 2.
+        if (individual2->father) {
+            paternal = compute_meioses_count(
+                individual1, individual2->father, founder_matrix);
+        }
+        if (individual2->mother) {
+            maternal = compute_meioses_count(
+                individual1, individual2->mother, founder_matrix);
+        }
+    } else if (founder_index2 != -1) {
+        // Vice versa.
+        if (individual1->father) {
+            paternal = compute_meioses_count(
+                individual1->father, individual2, founder_matrix);
+        }
+        if (individual1->mother) {
+            maternal = compute_meioses_count(
+                individual1->mother, individual2, founder_matrix);
+        }
+    } else if (individual1->rank == individual2->rank) {
+        // It's the same individual.
+        return 1;
+    } else if (individual1->rank < individual2->rank) {
+        // Karigl's recursive algorithm.
+        if (individual2->father) {
+            paternal = compute_meioses_count(
+                individual1, individual2->father, founder_matrix);
+        }
+        if (individual2->mother) {
+            maternal = compute_meioses_count(
+                individual1, individual2->mother, founder_matrix);
+        }
+    } else {
+        if (individual1->father) {
+            paternal = compute_meioses_count(
+                individual1->father, individual2, founder_matrix);
+        }
+        if (individual1->mother) {
+            maternal = compute_meioses_count(
+                individual1->mother, individual2, founder_matrix);
+        }
+    }
+    return paternal + maternal;
+}
+
 // Compute the meioses between the individuals
-void compute_mean_meioses_between_probands(
+void compute_meioses_sum_between_probands(
     std::vector<Individual<Index> *> &vertex_cut,
-    Matrix<double> &founder_matrix,
-    Matrix<double> &proband_matrix) {
+    Matrix<double> &founder_matrix_sum,
+    Matrix<double> &proband_matrix_sum) {
     #pragma omp parallel for
     for (int i = 0; i < (int) vertex_cut.size(); i++) {
         Individual<Index> *individual1 = vertex_cut[i];
         #pragma omp parallel for
-        for (int j = 0; j < i; j++) {
+        for (int j = 0; j <= i; j++) {
             Individual<Index> *individual2 = vertex_cut[j];
-            double meioses = compute_mean_meioses(
-                individual1, individual2, founder_matrix
+            double meioses_sum = compute_meioses_sum(
+                individual1, individual2, founder_matrix_sum
             );
-            proband_matrix[i][j] = meioses;
-            proband_matrix[j][i] = meioses;
+            proband_matrix_sum[i][j] = meioses_sum;
+            proband_matrix_sum[j][i] = meioses_sum;
         }
     }
 }
+
+// Compute the meioses between the individuals
+void compute_meioses_count_between_probands(
+    std::vector<Individual<Index> *> &vertex_cut,
+    Matrix<int> &founder_matrix_count,
+    Matrix<int> &proband_matrix_count) {
+    #pragma omp parallel for
+    for (int i = 0; i < (int) vertex_cut.size(); i++) {
+        Individual<Index> *individual1 = vertex_cut[i];
+        #pragma omp parallel for
+        for (int j = 0; j <= i; j++) {
+            Individual<Index> *individual2 = vertex_cut[j];
+            int meioses_count = compute_meioses_count(
+                individual1, individual2,
+                founder_matrix_count
+            );
+            proband_matrix_count[i][j] = meioses_count;
+            proband_matrix_count[j][i] = meioses_count;
+        }
+    }
+}
+
 
 // Returns the meioses matrix using the algorithm from Morin et al.
 Matrix<double> compute_mean_meioses_matrix(Pedigree<> &pedigree,
@@ -848,9 +929,15 @@ Matrix<double> compute_mean_meioses_matrix(Pedigree<> &pedigree,
     std::vector<std::vector<int>> vertex_cuts;
     vertex_cuts = cut_vertices(extracted_pedigree, proband_ids);
     // Initialize the founders' kinship matrix
-    Matrix<double> founder_matrix = zeros<double>(
+    Matrix<double> founder_matrix_sum = zeros<double>(
         vertex_cuts[0].size(), vertex_cuts[0].size()
     );
+    Matrix<int> founder_matrix_count = zeros<int>(
+        vertex_cuts[0].size(), vertex_cuts[0].size()
+    );
+    for (int i = 0; i < (int) vertex_cuts[0].size(); i++) {
+        founder_matrix_count[i][i] = 1;
+    }   
     if (verbose) {
         // Print the vertex cuts
         int count = 0;
@@ -873,20 +960,39 @@ Matrix<double> compute_mean_meioses_matrix(Pedigree<> &pedigree,
             individual->data.index = founder_index++;
         }
         // Initialize the probands' kinship matrix
-        Matrix<double> proband_matrix = zeros<double>(
+        Matrix<double> proband_matrix_sum = zeros<double>(
+            vertex_cuts[i + 1].size(), vertex_cuts[i + 1].size()
+        );
+        Matrix<int> proband_matrix_count = zeros<int>(
             vertex_cuts[i + 1].size(), vertex_cuts[i + 1].size()
         );
         std::vector<Individual<Index> *> probands;
         for (const int id : vertex_cuts[i + 1]) {
             probands.push_back(meioses_pedigree.individuals.at(id));
         }
-        compute_mean_meioses_between_probands(
-            probands, founder_matrix, proband_matrix
+        compute_meioses_sum_between_probands(
+            probands, founder_matrix_sum, proband_matrix_sum
+        );
+        compute_meioses_count_between_probands(
+            probands, founder_matrix_count, proband_matrix_count
         );
         // The current generation becomes the previous generation
-        founder_matrix = std::move(proband_matrix);
+        founder_matrix_sum = std::move(proband_matrix_sum);
+        founder_matrix_count = std::move(proband_matrix_count);
     }
-    return founder_matrix;
+    // Compute the mean meioses matrix
+    Matrix<double> mean_meioses_matrix = zeros<double>(
+        proband_ids.size(), proband_ids.size()
+    );
+    for (int i = 0; i < (int) proband_ids.size(); i++) {
+        for (int j = 0; j < i; j++) {
+            double mean_meioses = founder_matrix_sum[i][j] /
+                founder_matrix_count[i][j];
+            mean_meioses_matrix[i][j] = mean_meioses;
+            mean_meioses_matrix[j][i] = mean_meioses;
+        }
+    }
+    return mean_meioses_matrix;
 }
 
 // Adds the contribution of an individual.
