@@ -77,7 +77,7 @@ def meioses(gen, **kwargs):
     verbose = kwargs.get('verbose', False)
     if verbose:
         begin = time.time()
-    cmatrix = cgeneo.compute_meioses_matrix(gen, pro, verbose)
+    cmatrix = cgeneo.compute_meiotic_distances(gen, pro, verbose)
     meioses_matrix = pd.DataFrame(
         cmatrix, index=pro, columns=pro, copy=False)
     if verbose:
