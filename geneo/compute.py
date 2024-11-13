@@ -93,7 +93,7 @@ def corr(gen, **kwargs):
     verbose = kwargs.get('verbose', False)
     if verbose:
         begin = time.time()
-    cmatrix = cgeneo.compute_correlationss(gen, pro, verbose)
+    cmatrix = cgeneo.compute_correlations(gen, pro, verbose)
     correlation_matrix = pd.DataFrame(
         cmatrix, index=pro, columns=pro, copy=False)
     if verbose:
