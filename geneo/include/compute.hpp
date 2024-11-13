@@ -120,7 +120,7 @@ void compute_meioses_between_probands(
     Matrix<char> &proband_matrix);
 
 // Returns the meioses matrix using the algorithm from Morin et al.
-Matrix<char> compute_meioses_matrix(Pedigree<> &pedigree,
+Matrix<char> compute_meiotic_distances(Pedigree<> &pedigree,
     std::vector<int> proband_ids, bool verbose);
 
 // Returns the matrix of correlations between individuals.
