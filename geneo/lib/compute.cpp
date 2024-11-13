@@ -691,7 +691,7 @@ void compute_meioses_between_probands(
 }
 
 // Returns the meioses matrix using the algorithm from Morin et al.
-Matrix<char> compute_meioses_matrix(Pedigree<> &pedigree,
+Matrix<char> compute_meiotic_distances(Pedigree<> &pedigree,
     std::vector<int> proband_ids, bool verbose) {
     // Get the proband IDs if they are not provided
     if (proband_ids.empty()) {
@@ -746,147 +746,26 @@ Matrix<char> compute_meioses_matrix(Pedigree<> &pedigree,
     return founder_matrix;
 }
 
-// Returns the relationship coefficient between two individuals.
-// A modified version of the recursive kinship algorithm from Karigl.
-double compute_relationship(
-    const Individual<Index> *individual1,
-    const Individual<Index> *individual2,
-    Matrix<double> &founder_matrix) {
-    double relationship = 0.0;
-    const int founder_index1 = individual1->data.index;
-    const int founder_index2 = individual2->data.index;
-    if (founder_index1 != -1 && founder_index2 != -1) {
-        // The kinship coefficient is stored in the founder matrix.
-        relationship = founder_matrix[founder_index1][founder_index2];
-    } else if (founder_index1 != -1) {
-        // The kinship coefficient was computed between individual 1
-        // and the parents of individual 2.
-        if (individual2->father) {
-            relationship += 0.5 * compute_relationship(
-                individual1, individual2->father, founder_matrix);
-        }
-        if (individual2->mother) {
-            relationship += 0.5 * compute_relationship(
-                individual1, individual2->mother, founder_matrix);
-        }
-    } else if (founder_index2 != -1) {
-        // Vice versa.
-        if (individual1->father) {
-            relationship += 0.5 * compute_relationship(
-                individual1->father, individual2, founder_matrix);
-        }
-        if (individual1->mother) {
-            relationship += 0.5 * compute_relationship(
-                individual1->mother, individual2, founder_matrix);
-        }
-    } else if (individual1->rank == individual2->rank) {
-        // It's the same individual.
-        return 1.0;
-    } else if (individual1->rank < individual2->rank) {
-        // Karigl's recursive algorithm.
-        if (individual2->father) {
-            relationship += 0.5 * compute_relationship(
-                individual1, individual2->father, founder_matrix);
-        }
-        if (individual2->mother) {
-            relationship += 0.5 * compute_relationship(
-                individual1, individual2->mother, founder_matrix);
-        }
-    } else {
-        if (individual1->father) {
-            relationship += 0.5 * compute_relationship(
-                individual1->father, individual2, founder_matrix);
-        }
-        if (individual1->mother) {
-            relationship += 0.5 * compute_relationship(
-                individual1->mother, individual2, founder_matrix);
-        }
-    }
-    return relationship;
-}
-
-// Compute the relationship coefficients between the individuals
-void compute_relationships_between_probands(
-    std::vector<Individual<Index> *> &vertex_cut,
-    Matrix<double> &founder_matrix,
-    Matrix<double> &proband_matrix) {
-    double relationship;
+// Returns the matrix of correlations between individuals.
+Matrix<double> compute_correlations(Pedigree<> &pedigree,
+    std::vector<int> proband_ids, bool verbose) {
+    Matrix<double> correlation_matrix = compute_kinships(
+        pedigree, proband_ids, verbose);
     #pragma omp parallel for
-    for (int i = 0; i < (int) vertex_cut.size(); i++) {
-        Individual<Index> *individual1 = vertex_cut[i];
+    for (int i = 0; i < (int) correlation_matrix.size(); i++) {
         #pragma omp parallel for
         for (int j = 0; j < i; j++) {
-            Individual<Index> *individual2 = vertex_cut[j];
-            relationship = compute_relationship(
-                individual1, individual2, founder_matrix
-            );
-            proband_matrix[i][j] = relationship;
-            proband_matrix[j][i] = relationship;
+            double correlation = correlation_matrix[i][j] /
+                sqrt(correlation_matrix[i][i] * correlation_matrix[j][j]);
+            correlation_matrix[i][j] = correlation;
+            correlation_matrix[j][i] = correlation;
         }
     }
-}
-
-// Returns the matrix of relationship coefficients.
-Matrix<double> compute_relationships(Pedigree<> &pedigree,
-    std::vector<int> proband_ids, bool verbose) {
-    // Get the proband IDs if they are not provided
-    if (proband_ids.empty()) {
-        proband_ids = get_proband_ids(pedigree);
+    #pragma omp parallel for
+    for (int i = 0; i < (int) correlation_matrix.size(); i++) {
+        correlation_matrix[i][i] = 1.0;
     }
-    // Extract the relevant individuals from the pedigree
-    Pedigree<> extracted_pedigree = extract_pedigree(pedigree, proband_ids);
-    // Convert the pedigree to a kinship pedigree
-    Pedigree<Index> relationship_pedigree(extracted_pedigree);
-    // Cut the vertices (a vertex corresponds to an individual)
-    std::vector<std::vector<int>> vertex_cuts;
-    vertex_cuts = cut_vertices(extracted_pedigree, proband_ids);
-    // Initialize the founders' kinship matrix
-    Matrix<double> founder_matrix = zeros<double>(
-        vertex_cuts[0].size(), vertex_cuts[0].size()
-    );
-    for (int i = 0; i < (int) vertex_cuts[0].size(); i++) {
-        founder_matrix[i][i] = 1.0;
-    }
-    if (verbose) {
-        // Print the vertex cuts
-        int count = 0;
-        for (std::vector<int> vertex_cut : vertex_cuts) {
-            printf("Cut size %d/%d: %d\n",
-                ++count, (int) vertex_cuts.size(), (int) vertex_cut.size());
-        }
-        printf("Computing the relationship matrix:\n");
-    }
-    int cut_count = 0;
-    // Go from the top to the bottom of the pedigree
-    for (int i = 0; i < (int) vertex_cuts.size() - 1; i++) {
-        if (verbose) {
-            printf("Cut %d out of %d\n", ++cut_count, (int) vertex_cuts.size());
-        }
-        // Index the founders
-        int founder_index = 0;
-        for (const int id : vertex_cuts[i]) {
-            Individual<Index> *individual =
-                relationship_pedigree.individuals.at(id);
-            individual->data.index = founder_index++;
-        }
-        // Initialize the probands' kinship matrix
-        Matrix<double> proband_matrix = zeros<double>(
-            vertex_cuts[i + 1].size(), vertex_cuts[i + 1].size()
-        );
-        std::vector<Individual<Index> *> probands;
-        for (const int id : vertex_cuts[i + 1]) {
-            probands.push_back(relationship_pedigree.individuals.at(id));
-        }
-        for (int j = 0; j < (int) vertex_cuts[i + 1].size(); j++) {
-            proband_matrix[j][j] = 1.0;
-        }
-        compute_relationships_between_probands(
-            probands, founder_matrix, proband_matrix
-        );
-        // The current generation becomes the previous generation
-        founder_matrix = std::move(proband_matrix);
-    }
-    return founder_matrix;
+    return correlation_matrix;
 }
 
 // Adds the contribution of an individual.

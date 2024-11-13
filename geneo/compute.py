@@ -86,21 +86,21 @@ def meioses(gen, **kwargs):
         print(f'Elapsed time: {elapsed_time} seconds')
     return meioses_matrix
 
-def relation(gen, **kwargs):
+def corr(gen, **kwargs):
     pro = kwargs.get('pro', None)
     if pro is None:
         pro = cgeneo.get_proband_ids(gen)
     verbose = kwargs.get('verbose', False)
     if verbose:
         begin = time.time()
-    cmatrix = cgeneo.compute_relationships(gen, pro, verbose)
-    meioses_matrix = pd.DataFrame(
+    cmatrix = cgeneo.compute_correlationss(gen, pro, verbose)
+    correlation_matrix = pd.DataFrame(
         cmatrix, index=pro, columns=pro, copy=False)
     if verbose:
         end = time.time()
         elapsed_time = round(end - begin, 2)
         print(f'Elapsed time: {elapsed_time} seconds')
-    return meioses_matrix
+    return correlation_matrix
 
 def gc(pedigree, **kwargs):
     pro = kwargs.get('pro', None)
