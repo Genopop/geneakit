@@ -110,6 +110,6 @@ def gc(pedigree, **kwargs):
     if ancestors is None:
         ancestors = cgeneo.get_founder_ids(pedigree)
     cmatrix = cgeneo.compute_genetic_contributions(pedigree, pro, ancestors)
-    kinship_matrix = pd.DataFrame(
+    contribution_matrix = pd.DataFrame(
         cmatrix, index=pro, columns=ancestors, copy=False)
-    return kinship_matrix
+    return contribution_matrix
