@@ -266,11 +266,9 @@ double get_required_memory_for_kinships(
     if (proband_ids.empty()) {
         proband_ids = get_proband_ids(pedigree);
     }
-    // Extract the relevant individuals from the pedigree
-    Pedigree<> extracted_pedigree = extract_pedigree(pedigree, proband_ids);
     // Cut the vertices (a vertex corresponds to an individual)
     std::vector<std::vector<int>> vertex_cuts;
-    vertex_cuts = cut_vertices(extracted_pedigree, proband_ids);
+    vertex_cuts = cut_vertices(pedigree, proband_ids);
     // Calculate the size of each pair of vertex cuts
     std::vector<int> sizes;
     for (int i = 0; i < (int) vertex_cuts.size() - 1; i++) {
@@ -299,13 +297,11 @@ Matrix<double> compute_kinships(Pedigree<> &pedigree,
     if (proband_ids.empty()) {
         proband_ids = get_proband_ids(pedigree);
     }
-    // Extract the relevant individuals from the pedigree
-    Pedigree<> extracted_pedigree = extract_pedigree(pedigree, proband_ids);
     // Convert the pedigree to a kinship pedigree
-    Pedigree<Index> kinship_pedigree(extracted_pedigree);
+    Pedigree<Index> kinship_pedigree(pedigree);
     // Cut the vertices (a vertex corresponds to an individual)
     std::vector<std::vector<int>> vertex_cuts;
-    vertex_cuts = cut_vertices(extracted_pedigree, proband_ids);
+    vertex_cuts = cut_vertices(pedigree, proband_ids);
     // Initialize the founders' kinship matrix
     Matrix<double> founder_matrix = zeros<double>(
         vertex_cuts[0].size(), vertex_cuts[0].size()
@@ -697,13 +693,11 @@ Matrix<char> compute_meiotic_distances(Pedigree<> &pedigree,
     if (proband_ids.empty()) {
         proband_ids = get_proband_ids(pedigree);
     }
-    // Extract the relevant individuals from the pedigree
-    Pedigree<> extracted_pedigree = extract_pedigree(pedigree, proband_ids);
     // Convert the pedigree to a kinship pedigree
-    Pedigree<Index> meioses_pedigree(extracted_pedigree);
+    Pedigree<Index> meioses_pedigree(pedigree);
     // Cut the vertices (a vertex corresponds to an individual)
     std::vector<std::vector<int>> vertex_cuts;
-    vertex_cuts = cut_vertices(extracted_pedigree, proband_ids);
+    vertex_cuts = cut_vertices(pedigree, proband_ids);
     // Initialize the founders' kinship matrix
     Matrix<char> founder_matrix = zeros<char>(
         vertex_cuts[0].size(), vertex_cuts[0].size()
@@ -792,12 +786,8 @@ Matrix<double> compute_genetic_contributions(Pedigree<> &pedigree,
     if (ancestor_ids.empty()) {
         ancestor_ids = get_founder_ids(pedigree);
     }
-    // Extract the relevant individuals from the pedigree
-    Pedigree new_pedigree = extract_pedigree(
-        pedigree, proband_ids, ancestor_ids
-    );
     // Convert the pedigree to a kinship pedigree
-    Pedigree<Contribution> contribution_pedigree(new_pedigree);
+    Pedigree<Contribution> contribution_pedigree(pedigree);
     // Initialize the contributions matrix
     Matrix<double> contributions(proband_ids.size(), ancestor_ids.size());
     // Mark the probands
