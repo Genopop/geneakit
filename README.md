@@ -29,6 +29,8 @@ The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GEN
 
 * If OpenMP is found during installation, the `geneo.phi()` function will run in parallel, making it the fastest implementation of kinship computation that we know of. If you use macOS, you may need to follow [these instructions](https://www.scivision.dev/cmake-openmp/) to enable OpenMP.
 
+* On Windows 11, the toolkit was tested using Microsoft Visual C++ 2022.
+
 ## Data
 
 * If the pedigree is loaded from a file, the file *must* start with an irrelevant line (such as `ind father mother sex`) and the following lines must contain, as digits, each individual's ID, their father's ID (`0` if unknown), their mother's ID (`0` if unknown), and their sex (`0` if unknown, `1` if male, `2` if female), in that order. Each information must be separated by anything but digits (tabs, spaces, commas, etc.), with one line per individual.

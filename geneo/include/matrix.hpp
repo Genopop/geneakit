@@ -78,9 +78,9 @@ template <typename T>
 Matrix<T> zeros(size_t rows, size_t cols) {
     Matrix<T> matrix(rows, cols);
     #pragma omp parallel for
-    for (size_t i = 0; i < rows; i++) {
+    for (int i = 0; i < rows; i++) {
         #pragma omp parallel for
-        for (size_t j = 0; j < cols; j++) {
+        for (int j = 0; j < cols; j++) {
             matrix[i][j] = (T) 0;
         }
     }

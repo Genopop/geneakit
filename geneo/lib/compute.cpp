@@ -307,7 +307,7 @@ Matrix<double> compute_kinships(Pedigree<> &pedigree,
         vertex_cuts[0].size(), vertex_cuts[0].size()
     );
     #pragma omp parallel for
-    for (size_t i = 0; i < vertex_cuts[0].size(); i++) {
+    for (int i = 0; i < vertex_cuts[0].size(); i++) {
         founder_matrix[i][i] = 0.5;
     }
     if (verbose) {
@@ -506,7 +506,7 @@ double compute_mean_kinship(Matrix<double> &kinship_matrix) {
 }
 
 // Sort animals according to ID of their sires into SId.
-void MyQuickSort(int Ped[][2], int SId[], int size) {
+void MyQuickSort(int **Ped, int *SId, int size) {
     std::function<void(int, int)> quicksort = [&](int left, int right) {
         if (left >= right) return;
         int pivot = SId[(left + right) / 2];
@@ -541,12 +541,18 @@ std::vector<double> compute_inbreedings(Pedigree<> &pedigree,
         }
     }
     int i, j, k, rN, rS, S, D, MIP; // integer variables.
-    int Ped[n + 1][2], rPed[m + 1][2]; // main and reduced pedigrees, respectively
-    int SId[n + 1]; // will contain the sorted animals ID based on the ID of their sires
-    int Link[n + 1]; // will contain new ID of ancestors at position of their original ID
-    int MaxIdP[m + 1]; // will contain maximum new ID of parents for each paternal
+    int **Ped = new int*[n + 1], **rPed = new int*[m + 1]; // main and reduced pedigrees, respectively
+    for (int i = 0; i <= n; i++) {
+        Ped[i] = new int[2];
+    }
+    for (int i = 0; i <= m; i++) {
+        rPed[i] = new int[2];
+    }
+    int *SId = new int[n + 1]; // will contain the sorted animals ID based on the ID of their sires
+    int *Link = new int[n + 1]; // will contain new ID of ancestors at position of their original ID
+    int *MaxIdP = new int[m + 1]; // will contain maximum new ID of parents for each paternal
     // group at position of the new ID of each sire
-    double F[n + 1], B[m + 1], x[m + 1]; // inbreeding coefficients, within family
+    double *F = new double[n + 1], *B = new double[m + 1], *x = new double[m + 1]; // inbreeding coefficients, within family
     // segregation variances and x arrays, respectively
 
     for (i = 1; i <= n; ++i) {
@@ -602,6 +608,9 @@ std::vector<double> compute_inbreedings(Pedigree<> &pedigree,
         Individual<> *individual = extracted_pedigree.individuals.at(id);
         inbreeding_coefficients[i] = F[individual->rank + 1];
     }
+    delete[] Ped, rPed;
+    delete[] SId, Link, MaxIdP;
+    delete[] F, B, x;
     return inbreeding_coefficients;
 }
 

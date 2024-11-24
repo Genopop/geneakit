@@ -17,9 +17,6 @@ endif()
 # Link to external/include/parallel_hashmap/phmap.h
 include_directories(${CMAKE_SOURCE_DIR}/external)
 
-set(CMAKE_CXX_FLAGS_DEBUG "-g")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3")
-
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ version selection")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -40,10 +37,18 @@ find_package(OpenMP COMPONENTS CXX)
 
 # Add OpenMP flags if found
 if(OpenMP_FOUND)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS} -Wall -Wextra")
+  if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS} /O3 /W4 /std:c++17")
+  else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS} -O3 -Wall -Wextra")
+  endif()
   target_link_libraries(cgeneo PRIVATE OpenMP::OpenMP_CXX)
 else()
-  set(CMAKE_CXX_FLAGS "-Wall -Wextra")
+  if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS} /O3 /W4 /std:c++17")
+  else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS} -O3 -Wall -Wextra")
+  endif()
 endif()
 
 install(TARGETS cgeneo DESTINATION .)
