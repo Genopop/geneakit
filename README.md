@@ -33,9 +33,22 @@ The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GEN
 
 ## Data
 
-* If the pedigree is loaded from a file, the file *must* start with an irrelevant line (such as `ind father mother sex`) and the following lines must contain, as digits, each individual's ID, their father's ID (`0` if unknown), their mother's ID (`0` if unknown), and their sex (`0` if unknown, `1` if male, `2` if female), in that order. Each information must be separated by anything but digits (tabs, spaces, commas, etc.), with one line per individual.
+* If the pedigree is loaded from a file, using `geneo.genealogy("path/to/pedigree.csv")`, the file *must* start with an irrelevant line (such as `ind father mother sex`) and the following lines must contain, as digits, each individual's ID, their father's ID (`0` if unknown), their mother's ID (`0` if unknown), and their sex (`0` if unknown, `1` if male, `2` if female), in that order. Each information must be separated by anything but digits (tabs, spaces, commas, etc.), with one line per individual.
 
-* Three datasets come from the GENLIB source code: `geneo.geneaJi`, `geneo.genea140`  and `geneo.pop140`. They are part of the project for testing and practice. More information on these datasets is available in the [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GENLIB.pdf).
+* Three datasets come from the GENLIB source code: `geneo.geneaJi`, `geneo.genea140`  and `geneo.pop140`. They are part of the project for testing and practice. More information on these datasets is available in the [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GENLIB.pdf). They may be loaded using `geneo.genealogy(geneo.geneaJi)`, etc.
+
+* You may also load the pedigree from a Pandas DataFrame, for instance:
+```python
+import geneo as gen
+import pandas as pd
+inds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+fathers = [0, 0, 0, 1, 1, 0, 3, 3, 6, 6]
+mothers = [0, 0, 0, 2, 2, 0, 4, 4, 5, 5]
+sexes = [1, 2, 1, 2, 2, 1, 2, 1, 1, 2]
+df = pd.DataFrame({'ind': inds, 'father': fathers,
+                   'mother': mothers, 'sex': sexes})
+ped = gen.genealogy(df)
+```
 
 ## Comparison with GENLIB
 
