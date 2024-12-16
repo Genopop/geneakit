@@ -252,8 +252,7 @@ Matrix<double> compute_individual_completeness(Pedigree<> &pedigree,
     if (proband_ids.empty()) {
         proband_ids = get_proband_ids(pedigree);
     }
-    Pedigree new_pedigree = extract_pedigree(pedigree, proband_ids);
-    int depth = get_pedigree_depth(new_pedigree);
+    int depth = get_pedigree_depth(pedigree);
     Matrix<double> completeness = zeros<double>(depth, proband_ids.size());
     #pragma omp parallel for
     for (int i = 0; i < (int) proband_ids.size(); i++) {
@@ -284,8 +283,7 @@ std::vector<double> compute_mean_completeness(Pedigree<> &pedigree,
     if (proband_ids.empty()) {
         proband_ids = get_proband_ids(pedigree);
     }
-    Pedigree new_pedigree = extract_pedigree(pedigree, proband_ids);
-    int depth = get_pedigree_depth(new_pedigree);
+    int depth = get_pedigree_depth(pedigree);
     Matrix<double> completeness = zeros<double>(proband_ids.size(), depth);
     for (int i = 0; i < (int) proband_ids.size(); i++) {
         const int id = proband_ids[i];
@@ -342,8 +340,7 @@ Matrix<double> compute_individual_implex(Pedigree<> &pedigree,
     if (proband_ids.empty()) {
         proband_ids = get_proband_ids(pedigree);
     }
-    Pedigree new_pedigree = extract_pedigree(pedigree, proband_ids);
-    int depth = get_pedigree_depth(new_pedigree);
+    int depth = get_pedigree_depth(pedigree);
     Matrix<double> implex(proband_ids.size(), depth);
     #pragma omp parallel for
     for (int i = 0; i < (int) proband_ids.size(); i++) {
@@ -377,8 +374,7 @@ std::vector<double> compute_mean_implex(Pedigree<> &pedigree,
     if (proband_ids.empty()) {
         proband_ids = get_proband_ids(pedigree);
     }
-    Pedigree new_pedigree = extract_pedigree(pedigree, proband_ids);
-    int depth = get_pedigree_depth(new_pedigree);
+    int depth = get_pedigree_depth(pedigree);
     std::vector<double> mean_implex;
     Matrix<double> implex(proband_ids.size(), depth);
     for (int i = 0; i < (int) proband_ids.size(); i++) {

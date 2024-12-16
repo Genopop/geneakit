@@ -58,9 +58,6 @@ def completeness(gen, **kwargs):
     type = kwargs.get('type', 'MEAN')
     if pro is None:
         pro = cgeneo.get_proband_ids(gen)
-    if genNo is None:
-        depth = cgeneo.get_pedigree_depth(gen)
-        genNo = list(range(0, depth))
     if type == 'MEAN':
         data = cgeneo.compute_mean_completeness(gen, pro)
         pedigree_completeness = pd.DataFrame(
@@ -69,16 +66,16 @@ def completeness(gen, **kwargs):
         data = cgeneo.compute_individual_completeness(gen, pro)
         pedigree_completeness = pd.DataFrame(
             data, columns=pro, copy=False)
-    return pedigree_completeness.iloc[genNo, :]
+    if genNo is None:
+        return pedigree_completeness
+    else:
+        return pedigree_completeness.iloc[genNo, :]
 
 def implex(gen, **kwargs):
     pro = kwargs.get('pro', None)
     if pro is None:
         pro = cgeneo.get_proband_ids(gen)
     genNo = kwargs.get('genNo', None)
-    if genNo is None:
-        depth = cgeneo.get_pedigree_depth(gen)
-        genNo = list(range(0, depth))
     type = kwargs.get('type', 'MEAN')
     onlyNewAnc = kwargs.get('onlyNewAnc', False)
     if type == 'MEAN':
@@ -89,7 +86,10 @@ def implex(gen, **kwargs):
         data = cgeneo.compute_individual_implex(gen, pro, onlyNewAnc)
         pedigree_implex = pd.DataFrame(
             data, columns=pro, copy=False)
-    return pedigree_implex.iloc[genNo, :]
+    if genNo is None:
+        return pedigree_implex
+    else:
+        return pedigree_implex.iloc[genNo, :]
 
 def occ(gen, **kwargs):
     pro = kwargs.get('pro', None)
