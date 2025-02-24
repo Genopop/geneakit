@@ -267,26 +267,33 @@ double get_required_memory_for_kinships(
         proband_ids = get_proband_ids(pedigree);
     }
     // Cut the vertices (a vertex corresponds to an individual)
-    std::vector<std::vector<int>> vertex_cuts;
-    vertex_cuts = cut_vertices(pedigree, proband_ids);
+    std::vector<std::vector<int>> vertex_cuts = cut_vertices(pedigree, proband_ids);
+    
+    if (vertex_cuts.size() < 2) {
+        return 0;  // Not enough cuts to compute kinships
+    }
+
     // Calculate the size of each pair of vertex cuts
     std::vector<int> sizes;
-    for (int i = 0; i < (int) vertex_cuts.size() - 1; i++) {
+    for (size_t i = 0; i < vertex_cuts.size() - 1; i++) {
         sizes.push_back(vertex_cuts[i].size() + vertex_cuts[i + 1].size());
     }
+
     // Get the maximum size
-    int max_size = *max_element(sizes.begin(), sizes.end());
-    // Get the two sizes that when summed give the maximum size
+    int max_size = *std::max_element(sizes.begin(), sizes.end());
+
+    // Get the two sizes that sum to max_size
     int size1 = 0, size2 = 0;
-    for (int i = 0; i < (int) sizes.size(); i++) {
+    for (size_t i = 0; i < sizes.size(); i++) {
         if (vertex_cuts[i].size() + vertex_cuts[i + 1].size() == max_size) {
             size1 = vertex_cuts[i].size();
             size2 = vertex_cuts[i + 1].size();
             break;
         }
     }
-    // Calculate the required memory
-    double requirement = (size1 * size1 + size2 * size2) * sizeof(double) / 1e9;
+
+    // Prevent integer overflow by using double for multiplication
+    double requirement = (1.0 * size1 * size1 + 1.0 * size2 * size2) * sizeof(double) / 1e9;
     return requirement;
 }
 
