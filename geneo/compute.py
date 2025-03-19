@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 from scipy.sparse import csc_matrix
+from scipy.stats import bootstrap
+from scipy.stats import norm
 import cgeneo
 import time
 
@@ -61,6 +63,52 @@ def phiOver(phiMatrix, threshold):
     return pd.DataFrame(pairs, columns=['line', 'column', 'pro1',
                                         'pro2', 'kinship'])
 
+def phiCI(phiMatrix, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
+    phi_array = phiMatrix.to_numpy() if isinstance(phiMatrix, pd.DataFrame) else np.array(phiMatrix)
+    n = phi_array.shape[0]
+    
+    # Prepare indices as input data for bootstrap resampling
+    data = (np.arange(n),)
+    
+    # Define statistic function to compute mean of elements < 0.5 in resampled submatrix
+    def statistic(indices):
+        submatrix = phi_array[indices][:, indices]
+        elements_less_than_half = submatrix[submatrix < 0.5]
+        return np.mean(elements_less_than_half) if elements_less_than_half.size > 0 else np.nan
+    
+    # Pair probabilities into confidence intervals
+    sorted_prob = sorted(prob)
+    quantiles = {}
+    i, j = 0, len(sorted_prob) - 1
+    
+    while i < j:
+        lower = sorted_prob[i]
+        upper = sorted_prob[j]
+        confidence_level = upper - lower
+        
+        # Compute confidence interval using bootstrap
+        res = bootstrap(
+            data,
+            statistic,
+            method='percentile',
+            confidence_level=confidence_level,
+            n_resamples=b,
+            vectorized=False
+        )
+        quantiles[lower] = res.confidence_interval.low
+        quantiles[upper] = res.confidence_interval.high
+        i += 1
+        j -= 1
+    
+    # Compile results in original probability order
+    results = [quantiles.get(p, np.nan) for p in prob]
+    
+    return pd.DataFrame(
+        [results],
+        columns=[f"{p*100}%" for p in prob],
+        index=["Mean"]
+    )
+
 def f(gen, **kwargs):
     pro = kwargs.get('pro', None)
     if pro is None:
@@ -69,6 +117,46 @@ def f(gen, **kwargs):
     inbreeding_matrix = pd.DataFrame(
         cmatrix, index=pro, columns=['F'], copy=False)
     return inbreeding_matrix
+
+def fCI(vectF, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
+    f_array = vectF.to_numpy() if isinstance(vectF, pd.DataFrame) else np.array(vectF)
+    original_mean = np.mean(f_array)
+    n = len(f_array)
+    
+    # 1. Bootstrap resampling
+    bootstrap_means = np.zeros(b)
+    for i in range(b):
+        indices = np.random.choice(n, size=n, replace=True)
+        bootstrap_means[i] = np.mean(f_array[indices])
+    
+    # 2. Bias correction
+    prop_less = np.mean(bootstrap_means < original_mean)
+    z0 = norm.ppf(prop_less)
+    
+    # 3. Acceleration factor
+    jack_means = np.zeros(n)
+    for i in range(n):
+        jack_sample = np.delete(f_array, i)
+        jack_means[i] = np.mean(jack_sample)
+    
+    L = (n - 1) * (original_mean - jack_means)
+    a = np.sum(L**3) / (6 * (np.sum(L**2))**1.5)
+    
+    # 4. Adjusted quantiles
+    quantiles = []
+    for alpha in prob:
+        z_alpha = norm.ppf(alpha)
+        z = z0 + (z0 + z_alpha)/(1 - a*(z0 + z_alpha))
+        adjusted_p = norm.cdf(z)
+        quantiles.append(
+            np.quantile(bootstrap_means, np.clip(adjusted_p, 0, 1), method='linear')
+        )
+    
+    return pd.DataFrame(
+        [quantiles],
+        columns=[f"{p*100}%" for p in prob],
+        index=["Mean"]
+    )
 
 def meioses(gen, **kwargs):
     pro = kwargs.get('pro', None)
