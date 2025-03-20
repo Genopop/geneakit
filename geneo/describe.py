@@ -48,45 +48,6 @@ def meangendepth(gen, **kwargs):
                           copy=False)
         return df
     
-def get_ancestor_depths(pedigree, proband_id):
-    """Returns array of depths for all ancestors of a proband"""
-    ancestors = cgeneo.get_ancestor_ids(pedigree, [proband_id])
-    return [cgeneo.get_individual_depth(pedigree[a]) for a in ancestors]
-    
-def meangendepthVar(gen, **kwargs):
-    """
-    Computes variance of proband mean depths (matches R's GLPriv.entropie3V logic)
-    """
-    pro = kwargs.get('pro', None)
-    type_ = kwargs.get('type', 'MEAN')
-    
-    if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
-    
-    if type_ == 'MEAN':
-        # Get mean depth for each proband
-        mean_depths = cgeneo.get_mean_pedigree_depths(gen, pro)
-        
-        # Compute variance of these means using R's logic
-        variance = np.var(mean_depths, ddof=1)
-        return pd.DataFrame({'Exp.Gen.Depth.Var': [variance]}, index=['Mean'])
-
-    elif type_ == 'IND':
-        # Variance of depths within each proband's ancestry
-        var_per_proband = []
-        for p in pro:
-            depths = cgeneo.get_ancestor_depths(gen, p)
-            var = np.var(depths, ddof=1) if len(depths) > 1 else 0.0
-            var_per_proband.append(var)
-        
-        return pd.DataFrame(
-            {'Exp.Gen.Depth.Var': var_per_proband},
-            index=[f"Ind {p}" for p in pro]
-        )
-
-    else:
-        raise ValueError("type must be 'MEAN' or 'IND'")
-
 def nochildren(gen, individuals):
     number_of_children = cgeneo.get_number_of_children(gen, individuals)
     return number_of_children
