@@ -30,6 +30,8 @@ def mean(gen, individuals):
     df = pd.DataFrame([means], index=['mean'], columns=individuals, copy=False)
     return df
 
+max_ = max
+
 def max(gen, individuals):
     maxima = cgeneo.get_max_ancestor_path_lengths(gen, individuals)
     df = pd.DataFrame([maxima], index=['max'], columns=individuals, copy=False)
@@ -47,6 +49,80 @@ def meangendepth(gen, **kwargs):
         df = pd.DataFrame(data, index=pro, columns=['Exp.Gen.Depth'],
                           copy=False)
         return df
+
+def get_generational_counts(gen, pro):
+    current_gen = pro
+    vctF = []
+    vctDF = []
+
+    while current_gen:
+        founders = 0
+        semi_founders = 0
+        next_gen = []
+        
+        for ind in current_gen:
+            father = gen[ind].father.ind
+            mother = gen[ind].mother.ind
+            
+            if father == 0 and mother == 0:
+                founders += 1
+            elif (father == 0) != (mother == 0):  # Logical XOR for semi-founders
+                semi_founders += 1
+            
+            # Collect parents for next generation
+            if father != 0:
+                next_gen.append(father)
+            if mother != 0:
+                next_gen.append(mother)
+        
+        vctF.append(founders)
+        vctDF.append(semi_founders)
+        current_gen = list(next_gen)
+
+    return vctF, vctDF
+
+def variance3V(gen, pro=None, **kwargs):
+    if pro is None:
+        pro = cgeneo.get_proband_ids(gen)
+    N = len(pro)
+    if N == 0:
+        return 0.0
+
+    vctF, vctDF = get_generational_counts(gen, pro)
+    
+    P = 0.0
+    sum_sq = 0.0
+    
+    for genNo in range(len(vctF)):
+        weight = N * (2 ** genNo)
+        if weight == 0:
+            continue
+        
+        # Founder contribution
+        termF = (genNo * vctF[genNo]) / weight
+        P += termF
+        sum_sq += (genNo ** 2 * vctF[genNo]) / weight
+        
+        # Semi-founder contribution (0.5 weight)
+        termDF = (genNo * vctDF[genNo] * 0.5) / weight
+        P += termDF
+        sum_sq += (genNo ** 2 * vctDF[genNo] * 0.5) / weight
+    
+    variance = sum_sq - (P ** 2)
+    return variance
+
+"""
+def meangendepthVar(gen, **kwargs):
+    pro = kwargs.get('pro', None)
+    if pro is None:
+        pro = cgeneo.get_proband_ids(gen)
+    type = kwargs.get('type', 'MEAN')
+    data = cgeneo.get_mean_pedigree_depths(gen, pro)
+    if type == 'MEAN':
+        return np.mean(data)
+    elif type == 'IND':
+"""
+
     
 def nochildren(gen, individuals):
     number_of_children = cgeneo.get_number_of_children(gen, individuals)
