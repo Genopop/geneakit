@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import cgeneo
+from .extract import branching
 
 # Describe a pedigree
 
@@ -81,7 +82,7 @@ def get_generational_counts(gen, pro):
 
     return vctF, vctDF
 
-def variance3V(gen, pro=None, **kwargs):
+def variance3V(gen, pro=None):
     if pro is None:
         pro = cgeneo.get_proband_ids(gen)
     N = len(pro)
@@ -111,18 +112,21 @@ def variance3V(gen, pro=None, **kwargs):
     variance = sum_sq - (P ** 2)
     return variance
 
-"""
 def meangendepthVar(gen, **kwargs):
     pro = kwargs.get('pro', None)
     if pro is None:
         pro = cgeneo.get_proband_ids(gen)
     type = kwargs.get('type', 'MEAN')
-    data = cgeneo.get_mean_pedigree_depths(gen, pro)
     if type == 'MEAN':
-        return np.mean(data)
+        variance = variance3V(gen, pro=pro)
+        return variance
     elif type == 'IND':
-"""
-
+        variances = [variance3V(branching(gen, pro=[ind])) for ind in pro]
+        return pd.DataFrame(
+            variances,
+            columns=["Mean.Gen.Depth"],
+            index=pro
+        )
     
 def nochildren(gen, individuals):
     number_of_children = cgeneo.get_number_of_children(gen, individuals)
