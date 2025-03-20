@@ -3,9 +3,9 @@ import geneo as gen
 ped = gen.genealogy(gen.genea140)
 
 def test_printing():
-    assert repr(ped) == 'A pedigree with:\n41523 individuals;\n' + \
-        '68248 parent-child relations;\n20773 men;\n20750 women;\n' + \
-        '140 probands;\n18 generations.'
+    assert repr(ped) == 'A pedigree with:\n - 41523 individuals;\n' + \
+        ' - 68248 parent-child relations;\n - 20773 men;\n - 20750 women;\n' + \
+        ' - 140 probands;\n - 18 generations.'
     
 def test_number_of_individuals():
     assert gen.noind(ped) == 41523

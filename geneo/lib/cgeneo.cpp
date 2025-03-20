@@ -6,27 +6,27 @@ NB_MODULE(cgeneo, m) {
     nb::class_<Pedigree<>>(m, "Pedigree")
         .def(nb::init<std::vector<int>, phmap::flat_hash_map<int, Individual<> *>>())
         .def("__str__", [] (Pedigree<> &pedigree) {
-            return "A pedigree with:\n" +
+            return "A pedigree with:\n - " +
                 std::to_string(get_number_of_individuals(pedigree)) +
-                    " individuals;\n" +
+                    " individuals;\n - " +
                 std::to_string(get_number_of_parent_child_relations(pedigree)) +
-                    " parent-child relations;\n" +
-                std::to_string(get_number_of_men(pedigree)) + " men;\n" +
-                std::to_string(get_number_of_women(pedigree)) + " women;\n" +
+                    " parent-child relations;\n - " +
+                std::to_string(get_number_of_men(pedigree)) + " men;\n - " +
+                std::to_string(get_number_of_women(pedigree)) + " women;\n - " +
                 std::to_string(get_proband_ids(pedigree).size()) +
-                    " probands;\n" +
+                    " probands;\n - " +
                 std::to_string(get_pedigree_depth(pedigree)) + " generations.";
         })
         .def("__repr__", [] (Pedigree<> &pedigree) {
-            return "A pedigree with:\n" +
+            return "A pedigree with:\n - " +
                 std::to_string(get_number_of_individuals(pedigree)) +
-                    " individuals;\n" +
+                    " individuals;\n - " +
                 std::to_string(get_number_of_parent_child_relations(pedigree)) +
-                    " parent-child relations;\n" +
-                std::to_string(get_number_of_men(pedigree)) + " men;\n" +
-                std::to_string(get_number_of_women(pedigree)) + " women;\n" +
+                    " parent-child relations;\n - " +
+                std::to_string(get_number_of_men(pedigree)) + " men;\n - " +
+                std::to_string(get_number_of_women(pedigree)) + " women;\n - " +
                 std::to_string(get_proband_ids(pedigree).size()) +
-                    " probands;\n" +
+                    " probands;\n - " +
                 std::to_string(get_pedigree_depth(pedigree)) + " generations.";
         })
         .def("__getitem__", [] (Pedigree<> &pedigree, int id) {

@@ -96,6 +96,4 @@ out = gen.genout(ped, sorted=True)
 | `gen.simuSampleFreq`        | Gene dropping simulations - Frequencies                                        |
 | `gen.simuSet`               | Gene dropping simulations with specified transmission probabilities            |
 |                             |                                                                                |
-| `gen.completenessVar`       | Variance of completeness index                                                 |
-| `gen.implexVar`             | Variance of genealogical implex                                                |
 | `gen.meangendepthVar`       | Variance of genealogical depth                                                 |
