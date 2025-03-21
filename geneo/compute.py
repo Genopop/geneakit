@@ -120,40 +120,45 @@ def f(gen, **kwargs):
 
 def fCI(vectF, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
     f_array = vectF.to_numpy() if isinstance(vectF, pd.DataFrame) else np.array(vectF)
-    original_mean = np.mean(f_array)
-    n = len(f_array)
+    n = f_array.shape[0]
     
-    # 1. Bootstrap resampling
-    bootstrap_means = np.zeros(b)
-    for i in range(b):
-        indices = np.random.choice(n, size=n, replace=True)
-        bootstrap_means[i] = np.mean(f_array[indices])
+    # Prepare indices as input data for bootstrap resampling
+    data = (np.arange(n),)
     
-    # 2. Bias correction
-    prop_less = np.mean(bootstrap_means < original_mean)
-    z0 = norm.ppf(prop_less)
+    # Define statistic function to compute mean of elements < 0.5 in resampled submatrix
+    def statistic(indices):
+        submatrix = f_array[indices]
+        return np.mean(submatrix)
     
-    # 3. Acceleration factor
-    jack_means = np.zeros(n)
-    for i in range(n):
-        jack_sample = np.delete(f_array, i)
-        jack_means[i] = np.mean(jack_sample)
+    # Pair probabilities into confidence intervals
+    sorted_prob = sorted(prob)
+    quantiles = {}
+    i, j = 0, len(sorted_prob) - 1
     
-    L = (n - 1) * (original_mean - jack_means)
-    a = np.sum(L**3) / (6 * (np.sum(L**2))**1.5)
-    
-    # 4. Adjusted quantiles
-    quantiles = []
-    for alpha in prob:
-        z_alpha = norm.ppf(alpha)
-        z = z0 + (z0 + z_alpha)/(1 - a*(z0 + z_alpha))
-        adjusted_p = norm.cdf(z)
-        quantiles.append(
-            np.quantile(bootstrap_means, np.clip(adjusted_p, 0, 1), method='linear')
+    while i < j:
+        lower = sorted_prob[i]
+        upper = sorted_prob[j]
+        confidence_level = upper - lower
+        
+        # Compute confidence interval using bootstrap
+        res = bootstrap(
+            data,
+            statistic,
+            method='BCa',
+            confidence_level=confidence_level,
+            n_resamples=b,
+            vectorized=False
         )
+        quantiles[lower] = res.confidence_interval.low
+        quantiles[upper] = res.confidence_interval.high
+        i += 1
+        j -= 1
+    
+    # Compile results in original probability order
+    results = [quantiles.get(p, np.nan) for p in prob]
     
     return pd.DataFrame(
-        [quantiles],
+        [results],
         columns=[f"{p*100}%" for p in prob],
         index=["Mean"]
     )
