@@ -1,4 +1,4 @@
-# GENEO Toolkit
+# GENEO ToolKit
 
 A set of functions for pedigree analysis, designed for use with data from the [GÉNÉO portal](https://portailgeneo.ca). Based on the functionality of [GENLIB](https://cran.r-project.org/web/packages/GENLIB/index.html): see the article by Gauvin et al. (2015) \<[doi:10.1186/s12859-015-0581-5](https://doi.org/10.1186/s12859-015-0581-5)>.
 
