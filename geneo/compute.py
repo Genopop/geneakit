@@ -39,18 +39,14 @@ def phi(gen, **kwargs):
     return kinship_matrix
 
 def phiMean(kinship_matrix):
-    mean = 0
     if type(kinship_matrix) == csc_matrix:
-        for i in range(kinship_matrix.shape[0]):
-            for j in range(i):
-                mean += kinship_matrix[j, i]
+        mean = kinship_matrix.sum()
     elif type(kinship_matrix) == pd.DataFrame:
-        for i in range(kinship_matrix.shape[0]):
-            for j in range(i):
-                mean += kinship_matrix.iloc[i, j]
+        mean = kinship_matrix.sum().sum()
     else:
         raise TypeError('Input must be a DataFrame or a CSC matrix.')
-    mean /= kinship_matrix.shape[0] * (kinship_matrix.shape[0] - 1) / 2
+    mean -= np.sum(np.diag(kinship_matrix))
+    mean /= (kinship_matrix.shape[0] ** 2 - kinship_matrix.shape[0])
     return mean
 
 def phiOver(phiMatrix, threshold):
