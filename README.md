@@ -4,7 +4,7 @@ A set of functions for pedigree analysis, designed for use with data from the [G
 
 ## Documentation
 
-The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GENLIB.pdf) and this README file are sufficient to learn how to use the GENEO toolkit.
+The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GENLIB.pdf) and this README file are sufficient to learn how to use the GENEO toolkit. In addition, documentation is available for all functions through the `help()` function, e.g. `help(gen.phi)`.
 
 ## Aims
 
@@ -71,7 +71,7 @@ out <- gen.genout(ped, sorted=TRUE)
 ```python
 # With the GENEO toolkit
 import geneo as gen
-genea140 = gen.genea140
+from geneo import genea140
 ped = gen.genealogy(genea140)
 pro = gen.pro(ped)
 phi = gen.phi(ped, pro=pro)
