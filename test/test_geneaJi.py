@@ -1,7 +1,8 @@
 import pandas as pd
 import geneo as gen
+from geneo import geneaJi
 
-ped = gen.genealogy(gen.geneaJi)
+ped = gen.genealogy(geneaJi)
 
 def test_probands():
     assert gen.pro(ped) == [1, 2, 29]
