@@ -1,6 +1,7 @@
 import geneo as gen
+from geneo import genea140
 
-ped = gen.genealogy(gen.genea140)
+ped = gen.genealogy(genea140)
 
 def test_printing():
     assert repr(ped) == 'A pedigree with:\n - 41523 individuals;\n' + \
