@@ -13,7 +13,8 @@ def pro(gen):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> pro = gen.pro(pedigree)
         >>> print(pro)
         [1, 2, 29]
@@ -40,7 +41,8 @@ def founder(gen):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.genea140)
+        >>> from geneo import genea140
+        >>> ped = gen.genealogy(genea140)
         >>> founders = gen.founder(pedigree)
         >>> print(f"Founders count: {len(founders)}")
         Founders count: 7399
@@ -62,7 +64,8 @@ def half_founder(gen):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> hf = gen.half_founder(pedigree)
         >>> print(hf)
         [9, 11]
@@ -87,7 +90,8 @@ def parent(gen, individuals, **kwargs):
               
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> pro = gen.pro(ped)
         >>> parents = gen.parent(ped, pro)
         >>> print(parents['Fathers'])
@@ -125,7 +129,8 @@ def sibship(gen, individuals, **kwargs):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.genea140)
+        >>> from geneo import genea140
+        >>> ped = gen.genealogy(genea140)
         >>> siblings = gen.sibship(ped, [113470])
         >>> print(siblings)
         [10033]
@@ -146,7 +151,8 @@ def children(gen, individuals):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.genea140)
+        >>> from geneo import genea140
+        >>> ped = gen.genealogy(genea140)
         >>> children = gen.children(ped, [10086])
         >>> print(children)
         [33724]
@@ -172,7 +178,8 @@ def ancestor(gen, individuals, **kwargs):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.genea140)
+        >>> from geneo import genea140
+        >>> ped = gen.genealogy(genea140)
         >>> pro = gen.pro(ped)
         >>> all_ancestors = gen.ancestor(ped, pro, type='TOTAL')
         >>> print(f"Ancestors count: {len(all_ancestors)}")
@@ -200,7 +207,8 @@ def descendant(gen, individuals, **kwargs):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.genea140)
+        >>> from geneo import geneaa140
+        >>> ped = gen.genealogy(genea140)
         >>> founders = gen.founder(ped)
         >>> all_descendants = gen.descendant(ped, founders, type='TOTAL')
         >>> print(f"Descendants count: {len(all_descendants)}")
@@ -225,7 +233,8 @@ def commonAncestor(gen, individuals):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.genea140)
+        >>> from geneo import genea140
+        >>> ped = gen.genealogy(genea140)
         >>> common_anc = gen.commonAncestor(ped, [113470, 10033])
         >>> print(f"Common ancestors count: {len(common_anc)}")
         Common ancestors count: 38
@@ -245,7 +254,8 @@ def findFounders(gen, individuals):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import genea140
+        >>> ped = gen.genealogy(geneaJi)
         >>> shared_founders = gen.findFounders(ped, [1, 29])
         >>> print(len(shared_founders))
         5
@@ -268,7 +278,8 @@ def findMRCA(gen, individuals):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> mrca_matrix = gen.findMRCA(ped, [1, 29])
         >>> print(mrca_matrix)
             14  20
@@ -298,7 +309,8 @@ def find_Min_Distance_MRCA(genMatrix, **kwargs):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> mrca_matrix = gen.findMRCA(ped, [1, 29])
         >>> min_dist = gen.find_Min_Distance_MRCA(mrca_matrix)
         >>> print(min_dist)

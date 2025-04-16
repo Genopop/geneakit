@@ -22,7 +22,8 @@ def genout(gen, **kwargs):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> df_raw = gen.genout(ped)
         >>> print(df_raw.head(3))
            ind  father  mother  sex

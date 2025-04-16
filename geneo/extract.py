@@ -21,7 +21,8 @@ def branching(gen, **kwargs):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.genea140)
+        >>> from geneo import genea140
+        >>> ped = gen.genealogy(genea140)
         >>> sub_ped = gen.branching(ped, pro=[409033, 408728])
         >>> print(len(sub_ped))
         1543
@@ -62,7 +63,8 @@ def lineages(gen, **kwargs):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.genea140)
+        >>> from geneo import genea140
+        >>> ped = gen.genealogy(genea140)
         >>> mat_lineage = gen.lineages(ped, maternal=True)
         >>> pat_lineage = gen.lineages(ped, pro=[717634], maternal=False)
         

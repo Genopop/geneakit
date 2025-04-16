@@ -14,7 +14,8 @@ def noind(gen):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.genea140)
+        >>> from geneo import genea140
+        >>> ped = gen.genealogy(genea140)
         >>> total = gen.noind(ped)
         >>> print(f"Pedigree size: {total}")
         Pedigree size: 41523
@@ -33,7 +34,8 @@ def nomen(gen):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.genea140)
+        >>> from geneo import genea140
+        >>> ped = gen.genealogy(genea140)
         >>> males = gen.nomen(ped)
         >>> print(f"Male count: {males}")
         Male count: 20773
@@ -52,7 +54,8 @@ def nowomen(gen):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.genea140)
+        >>> from geneo import genea140
+        >>> ped = gen.genealogy(genea140)
         >>> females = gen.nowomen(ped)
         >>> print(f"Female count: {females}")
         Female count: 20750
@@ -72,7 +75,8 @@ def depth(gen):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.genea140)
+        >>> from geneo import genea140
+        >>> ped = gen.genealogy(genea140)
         >>> gen_depth = gen.depth(ped)
         >>> print(f"Generational depth: {gen_depth}")
         Generational depth: 18
@@ -94,7 +98,8 @@ def min(gen, individuals):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> min_depths = gen.min(ped, [17, 26])
         >>> print(min_depths)
               17  26
@@ -118,7 +123,8 @@ def mean(gen, individuals):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> avg_depths = gen.mean(ped, [17, 26])
         >>> print(avg_depths)
                     17        26
@@ -144,7 +150,8 @@ def max(gen, individuals):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> max_depths = gen.max(ped, [17, 26])
         >>> print(max_depths)
               17  26
@@ -171,7 +178,8 @@ def meangendepth(gen, **kwargs):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> avg_depth = gen.meangendepth(ped)
         >>> print(f"Expected depth: {avg_depth:.2f}")
         Expected depth: 4.12
@@ -273,7 +281,8 @@ def meangendepthVar(gen, **kwargs):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> pop_var = gen.meangendepthVar(ped)
         >>> print(f"Population variance: {pop_var:.2f}")
         Population variance: 1.65
@@ -313,7 +322,8 @@ def nochildren(gen, individuals):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> child_counts = gen.nochildren(ped, [14, 20])
         >>> print(child_counts)
         [4, 3]
@@ -337,7 +347,8 @@ def completeness(gen, **kwargs):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> comp = gen.completeness(ped)
         >>> print(comp.head(3))
             mean
@@ -381,7 +392,8 @@ def completenessVar(gen, **kwargs):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> comp_var = gen.completenessVar(ped)
         >>> print(comp_var)
            completeness.var
@@ -427,6 +439,7 @@ def implex(gen, **kwargs):
             
     Examples:
         >>> import geneo as gen
+        >>> from geneo import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> imp = gen.implex(ped)
         >>> print(imp)
@@ -475,7 +488,8 @@ def implexVar(gen, **kwargs):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> imp_var = gen.implexVar(ped)
         >>> print(imp_var)
            implex.var
@@ -521,7 +535,8 @@ def occ(gen, **kwargs):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> occurrences = gen.occ(ped, ancestors=[17, 25])
         >>> print(occurrences)
             1   2   29
@@ -560,7 +575,8 @@ def rec(gen, **kwargs):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> coverage = gen.rec(ped)
         >>> print(coverage)
             coverage
@@ -595,7 +611,8 @@ def findDistance(gen, individuals, ancestor):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> dist = gen.findDistance(ped, [1, 29], 17)
         >>> print(f"Genetic distance: {dist}")
         Genetic distance: 8

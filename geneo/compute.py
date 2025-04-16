@@ -26,7 +26,8 @@ def phi(gen, **kwargs):
 
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> kin_mat = gen.phi(ped)
         >>> print(kin_mat)
                   1         2         29
@@ -74,7 +75,8 @@ def phiMean(kinship_matrix):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> kin_mat = gen.phi(ped)
         >>> mean_phi = gen.phiMean(kin_mat)
         >>> print(f"Average kinship: {mean_phi:.4f}")
@@ -104,7 +106,8 @@ def phiOver(phiMatrix, threshold):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> kin_mat = gen.phi(ped)
         >>> high_kinship = gen.phiOver(kin_mat, 0.1)
         >>> print(high_kinship)
@@ -135,7 +138,8 @@ def phiCI(phiMatrix, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.genea140)
+        >>> from geneo import genea140
+        >>> ped = gen.genealogy(genea140)
         >>> kin_mat = gen.phi(ped)
         >>> ci = gen.phiCI(kin_mat)
         >>> print(ci)
@@ -201,7 +205,8 @@ def f(gen, **kwargs):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> inbreeding = gen.f(ped)
         >>> print(inbreeding)
                    F
@@ -228,7 +233,8 @@ def fCI(vectF, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
         
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> inbreeding = gen.f(ped)
         >>> f_ci = gen.fCI(inbreeding)
         >>> print(f_ci)
@@ -294,7 +300,8 @@ def meioses(gen, **kwargs):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> dist_mat = gen.meioses(ped)
         >>> print(dist_mat)
             1   2   29
@@ -357,7 +364,8 @@ def gc(pedigree, **kwargs):
             
     Examples:
         >>> import geneo as gen
-        >>> ped = gen.genealogy(gen.geneaJi)
+        >>> from geneo import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
         >>> contributions = gen.gc(ped)
         >>> print(contributions)
                 17       19      20    23        25        26
