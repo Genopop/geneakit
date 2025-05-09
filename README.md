@@ -25,7 +25,11 @@ The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GEN
 
 ## Installation
 
-* Clone this repository, `cd` into it, then run `pip install .`. Alternatively, without cloning, run `pip install https://github.com/GPhMorin/geneo/archive/main.zip`. Both options install two packages, `geneo` and `cgeneo` (used by the former internally), and their dependencies. You will need a compiler that supports C++17.
+* Clone this repository, `cd` into it, then run `pip install .`. Alternatively, without cloning, run:
+    ```
+    pip install https://github.com/GPhMorin/geneo/archive/main.zip
+    ```
+    Both options install two packages, `geneo` and `cgeneo` (used by the former internally), and their dependencies. You will need a compiler that supports C++17.
 
 * If OpenMP is found during installation, the `geneo.phi()` function will run in parallel, making it the fastest implementation of kinship computation that we know of. If you use macOS, you may need to follow [these instructions](https://www.scivision.dev/cmake-openmp/) to enable OpenMP.
 
