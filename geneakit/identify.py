@@ -1,19 +1,19 @@
 import numpy as np
 import pandas as pd
-import cgeneo
+import cgeneakit
 
 def pro(gen):
     """Get proband IDs (individuals without children in the genealogy)
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         
     Returns:
         list: Proband IDs sorted in ascending order
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> pro = gen.pro(pedigree)
         >>> print(pro)
@@ -23,14 +23,14 @@ def pro(gen):
         gen.founder: Get individuals without parents
         gen.children: Find children of specified individuals
     """
-    proband_ids = cgeneo.get_proband_ids(gen)
+    proband_ids = cgeneakit.get_proband_ids(gen)
     return proband_ids
 
 def founder(gen):
     """Get founder IDs (individuals without known parents)
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
     
     Returns:
         list: Founder IDs sorted in ascending order
@@ -40,21 +40,21 @@ def founder(gen):
         Use gen.half_founder() for individuals with one unknown parent
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import genea140
+        >>> import geneakit as gen
+        >>> from geneakit import genea140
         >>> ped = gen.genealogy(genea140)
         >>> founders = gen.founder(pedigree)
         >>> print(f"Founders count: {len(founders)}")
         Founders count: 7399
     """
-    founder_ids = cgeneo.get_founder_ids(gen)
+    founder_ids = cgeneakit.get_founder_ids(gen)
     return founder_ids
 
 def half_founder(gen):
     """Get half-founder IDs (individuals with one unknown parent)
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         
     Returns:
         list: Half-founder IDs sorted in ascending order
@@ -63,21 +63,21 @@ def half_founder(gen):
         Half-founders have either father=0 or mother=0, but not both
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> hf = gen.half_founder(pedigree)
         >>> print(hf)
         [9, 11]
     """
-    half_founder_ids = cgeneo.get_half_founder_ids(gen)
+    half_founder_ids = cgeneakit.get_half_founder_ids(gen)
     return half_founder_ids
 
 def parent(gen, individuals, **kwargs):
     """Get parental IDs for specified individuals
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         individuals (list): Target individual IDs
         output (str): Parent type to return:
             'FaMo' - Both parents (default)
@@ -89,8 +89,8 @@ def parent(gen, individuals, **kwargs):
               lists of parental IDs (0 indicates unknown parent)
               
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> pro = gen.pro(ped)
         >>> parents = gen.parent(ped, pro)
@@ -104,19 +104,19 @@ def parent(gen, individuals, **kwargs):
     output = kwargs.get('output', 'FaMo')
     parents = dict()
     if output == 'FaMo':
-        parents['Fathers'] = cgeneo.get_father_ids(gen, individuals)
-        parents['Mothers'] = cgeneo.get_mother_ids(gen, individuals)
+        parents['Fathers'] = cgeneakit.get_father_ids(gen, individuals)
+        parents['Mothers'] = cgeneakit.get_mother_ids(gen, individuals)
     if output == 'Fa':
-        parents['Fathers'] = cgeneo.get_father_ids(gen, individuals)
+        parents['Fathers'] = cgeneakit.get_father_ids(gen, individuals)
     if output == 'Mo':
-        parents['Mothers'] = cgeneo.get_mother_ids(gen, individuals)
+        parents['Mothers'] = cgeneakit.get_mother_ids(gen, individuals)
     return parents
 
 def sibship(gen, individuals, **kwargs):
     """Get sibling IDs for specified individuals
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         individuals (list): Target individual IDs
         halfSibling (bool): Include half-siblings if True (default)
         
@@ -128,30 +128,30 @@ def sibship(gen, individuals, **kwargs):
         Half-siblings share one parent
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import genea140
+        >>> import geneakit as gen
+        >>> from geneakit import genea140
         >>> ped = gen.genealogy(genea140)
         >>> siblings = gen.sibship(ped, [113470])
         >>> print(siblings)
         [10033]
     """
     halfSibling = kwargs.get('halfSibling', True)
-    sibling_ids = cgeneo.get_sibling_ids(gen, individuals, halfSibling)
+    sibling_ids = cgeneakit.get_sibling_ids(gen, individuals, halfSibling)
     return sibling_ids
 
 def children(gen, individuals):
     """Get children IDs for specified individuals
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         individuals (list): Target individual IDs
         
     Returns:
         list: Children's IDs sorted in alphabetical order
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import genea140
+        >>> import geneakit as gen
+        >>> from geneakit import genea140
         >>> ped = gen.genealogy(genea140)
         >>> children = gen.children(ped, [10086])
         >>> print(children)
@@ -160,14 +160,14 @@ def children(gen, individuals):
     See Also:
         gen.parent: Inverse relationship lookup
     """
-    children_ids = cgeneo.get_children_ids(gen, individuals)
+    children_ids = cgeneakit.get_children_ids(gen, individuals)
     return children_ids
 
 def ancestor(gen, individuals, **kwargs):
     """Get ancestor IDs for specified individuals
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         individuals (list): Target individual IDs
         type (str): Ancestor retrieval mode:
             'UNIQUE' - One occurrence per ancestor (default)
@@ -177,8 +177,8 @@ def ancestor(gen, individuals, **kwargs):
         list: Ancestor IDs
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import genea140
+        >>> import geneakit as gen
+        >>> from geneakit import genea140
         >>> ped = gen.genealogy(genea140)
         >>> pro = gen.pro(ped)
         >>> all_ancestors = gen.ancestor(ped, pro, type='TOTAL')
@@ -187,16 +187,16 @@ def ancestor(gen, individuals, **kwargs):
     """
     type = kwargs.get('type', 'UNIQUE')
     if type == 'UNIQUE':
-        ancestor_ids = cgeneo.get_ancestor_ids(gen, individuals)
+        ancestor_ids = cgeneakit.get_ancestor_ids(gen, individuals)
     elif type == 'TOTAL':
-        ancestor_ids = cgeneo.get_all_ancestor_ids(gen, individuals)
+        ancestor_ids = cgeneakit.get_all_ancestor_ids(gen, individuals)
     return ancestor_ids
 
 def descendant(gen, individuals, **kwargs):
     """Get descendant IDs for specified individuals
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         individuals (list): Target individual IDs
         type (str): Descendant retrieval mode:
             'UNIQUE' - One occurrence per descendant (default)
@@ -206,8 +206,8 @@ def descendant(gen, individuals, **kwargs):
         list: Descendant IDs
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaa140
+        >>> import geneakit as gen
+        >>> from geneakit import geneaa140
         >>> ped = gen.genealogy(genea140)
         >>> founders = gen.founder(ped)
         >>> all_descendants = gen.descendant(ped, founders, type='TOTAL')
@@ -216,58 +216,58 @@ def descendant(gen, individuals, **kwargs):
     """
     type = kwargs.get('type', 'UNIQUE')
     if type == 'UNIQUE':
-        descendant_ids = cgeneo.get_descendant_ids(gen, individuals)
+        descendant_ids = cgeneakit.get_descendant_ids(gen, individuals)
     elif type == 'TOTAL':
-        descendant_ids = cgeneo.get_all_descendant_ids(gen, individuals)
+        descendant_ids = cgeneakit.get_all_descendant_ids(gen, individuals)
     return descendant_ids
 
 def commonAncestor(gen, individuals):
     """Find common ancestors shared by multiple individuals
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         individuals (list): Target individual IDs
         
     Returns:
         list: Shared ancestor IDs sorted in ascending order
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import genea140
+        >>> import geneakit as gen
+        >>> from geneakit import genea140
         >>> ped = gen.genealogy(genea140)
         >>> common_anc = gen.commonAncestor(ped, [113470, 10033])
         >>> print(f"Common ancestors count: {len(common_anc)}")
         Common ancestors count: 38
     """
-    common_ancestor_ids = cgeneo.get_common_ancestor_ids(gen, individuals)
+    common_ancestor_ids = cgeneakit.get_common_ancestor_ids(gen, individuals)
     return common_ancestor_ids
 
 def findFounders(gen, individuals):
     """Find common founders shared by multiple individuals
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         individuals (list): Target individual IDs
         
     Returns:
         list: Shared founder IDs sorted in ascending order
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import genea140
+        >>> import geneakit as gen
+        >>> from geneakit import genea140
         >>> ped = gen.genealogy(geneaJi)
         >>> shared_founders = gen.findFounders(ped, [1, 29])
         >>> print(len(shared_founders))
         5
     """
-    common_founder_ids = cgeneo.get_common_founder_ids(gen, individuals)
+    common_founder_ids = cgeneakit.get_common_founder_ids(gen, individuals)
     return common_founder_ids
 
 def findMRCA(gen, individuals):
     """Identify Most Recent Common Ancestors (MRCAs)
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         individuals (list): Target individual IDs
         
     Returns:
@@ -277,8 +277,8 @@ def findMRCA(gen, individuals):
             - Values: Number of meioses (generational steps)
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> mrca_matrix = gen.findMRCA(ped, [1, 29])
         >>> print(mrca_matrix)
@@ -286,8 +286,8 @@ def findMRCA(gen, individuals):
         1    4   4
         29   3   3
     """
-    mrca_ids = cgeneo.get_mrca_ids(gen, individuals)
-    cmatrix = cgeneo.get_mrca_meioses(gen, individuals, mrca_ids)
+    mrca_ids = cgeneakit.get_mrca_ids(gen, individuals)
+    cmatrix = cgeneakit.get_mrca_meioses(gen, individuals, mrca_ids)
     meioses_matrix = pd.DataFrame(
         cmatrix, index=individuals, columns=mrca_ids, copy = False)
     return meioses_matrix
@@ -308,8 +308,8 @@ def find_Min_Distance_MRCA(genMatrix, **kwargs):
             - distance: Total meioses count
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> mrca_matrix = gen.findMRCA(ped, [1, 29])
         >>> min_dist = gen.find_Min_Distance_MRCA(mrca_matrix)

@@ -1,5 +1,5 @@
 import pandas as pd
-import cgeneo
+import cgeneakit
 
 def genout(gen, **kwargs):
     """Convert genealogy object to structured DataFrame
@@ -9,7 +9,7 @@ def genout(gen, **kwargs):
     sorted.
 
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         sorted (bool, optional): Sort individuals numerically by ID.
             Defaults to False (maintain original load order).
             
@@ -21,8 +21,8 @@ def genout(gen, **kwargs):
             - sex: Biological sex (1=male, 2=female, 0=unknown)
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> df_raw = gen.genout(ped)
         >>> print(df_raw.head(3))
@@ -47,7 +47,7 @@ def genout(gen, **kwargs):
         gen.genealogy: For creating pedigree objects from raw data
     """
     sorted = kwargs.get('sorted', False)
-    output = cgeneo.output_pedigree(gen)
+    output = cgeneakit.output_pedigree(gen)
     dataframe = pd.DataFrame(
         output, columns=['ind', 'father', 'mother', 'sex'], copy=False)
     if sorted:

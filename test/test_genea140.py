@@ -1,5 +1,5 @@
-import geneo as gen
-from geneo import genea140
+import geneakit as gen
+from geneakit import genea140
 
 ped = gen.genealogy(genea140)
 

@@ -1,5 +1,5 @@
 import pandas as pd
-import geneo as gen
+import geneakit as gen
 
 def test_custom_pedigree():
     inds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]

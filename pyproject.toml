@@ -3,7 +3,7 @@ requires = ["scikit-build-core", "nanobind"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "geneo"
+name = "geneakit"
 version = "0.1.0"
 description = "A set of functions for pedigree analysis, based on the functionality of R's GENLIB"
 authors = [

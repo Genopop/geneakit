@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15...3.29)
-project(cgeneo LANGUAGES CXX)
+project(cgeneakit LANGUAGES CXX)
 
 if (CMAKE_VERSION VERSION_LESS 3.18)
   set(DEV_MODULE Development)
@@ -26,11 +26,11 @@ execute_process(
   OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE nanobind_ROOT)
 find_package(nanobind CONFIG REQUIRED)
 
-nanobind_add_module(cgeneo
-    geneo/lib/create.cpp geneo/lib/output.cpp
-    geneo/lib/identify.cpp geneo/lib/extract.cpp
-    geneo/lib/describe.cpp geneo/lib/compute.cpp
-    geneo/lib/cgeneo.cpp)
+nanobind_add_module(cgeneakit
+    geneakit/lib/create.cpp geneakit/lib/output.cpp
+    geneakit/lib/identify.cpp geneakit/lib/extract.cpp
+    geneakit/lib/describe.cpp geneakit/lib/compute.cpp
+    geneakit/lib/cgeneakit.cpp)
 
 # Find OpenMP compiler flags
 find_package(OpenMP COMPONENTS CXX)
@@ -42,7 +42,7 @@ if(OpenMP_FOUND)
   else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS} -O3 -Wall -Wextra")
   endif()
-  target_link_libraries(cgeneo PRIVATE OpenMP::OpenMP_CXX)
+  target_link_libraries(cgeneakit PRIVATE OpenMP::OpenMP_CXX)
 else()
   if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS} /O3 /Wall /permissive-")
@@ -51,4 +51,4 @@ else()
   endif()
 endif()
 
-install(TARGETS cgeneo DESTINATION .)
+install(TARGETS cgeneakit DESTINATION .)

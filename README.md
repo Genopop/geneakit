@@ -1,14 +1,14 @@
-# GENEO ToolKit
+# GeneaKit
 
 A set of functions for pedigree analysis, designed for use with data from the [GÉNÉO portal](https://portailgeneo.ca). Based on the functionality of [GENLIB](https://cran.r-project.org/web/packages/GENLIB/index.html): see the article by Gauvin et al. (2015) \<[doi:10.1186/s12859-015-0581-5](https://doi.org/10.1186/s12859-015-0581-5)>.
 
 ## Documentation
 
-The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GENLIB.pdf) and this README file are sufficient to learn how to use the GENEO toolkit. In addition, documentation is available for all functions through the `help()` function, e.g. `help(gen.phi)`.
+The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GENLIB.pdf) and this README file are sufficient to learn how to use GeneaKit. In addition, documentation is available for all functions through the `help()` function, e.g. `help(gen.phi)`.
 
 ## Aims
 
-* Easily port R code using GENLIB into Python code using the GENEO toolkit;
+* Easily port R code using GENLIB into Python code using GeneaKit;
 * Integrate with Python libraries such as Pandas and NumPy;
 * Provide speed and convenience;
 * Present a modular structure for further development.
@@ -27,23 +27,21 @@ The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GEN
 
 * Clone this repository, `cd` into it, then run `pip install .`. Alternatively, without cloning, run:
     ```
-    pip install https://github.com/GPhMorin/geneo/archive/main.zip
+    pip install https://github.com/GPhMorin/geneakit/archive/main.zip
     ```
-    Both options install two packages, `geneo` and `cgeneo` (used by the former internally), and their dependencies. You will need a compiler that supports C++17.
+    Both options install two packages, `geneakit` and `cgeneakit` (used by the former internally), and their dependencies. You will need a compiler that supports C++17.
 
-* If OpenMP is found during installation, the `geneo.phi()` function will run in parallel, making it the fastest implementation of kinship computation that we know of. If you use macOS, you may need to follow [these instructions](https://www.scivision.dev/cmake-openmp/) to enable OpenMP.
-
-* On Windows 11, the toolkit was tested using Microsoft Visual C++ 2022.
+* If OpenMP is found during installation, the `geneakit.phi()` function will run in parallel, making it the fastest implementation of kinship computation that we know of. If you use macOS, you may need to follow [these instructions](https://www.scivision.dev/cmake-openmp/) to enable OpenMP.
 
 ## Data
 
-* If the pedigree is loaded from a file, using `geneo.genealogy("path/to/pedigree.csv")`, the file *must* start with an irrelevant line (such as `ind father mother sex`) and the following lines must contain, as digits, each individual's ID, their father's ID (`0` if unknown), their mother's ID (`0` if unknown), and their sex (`0` if unknown, `1` if male, `2` if female), in that order. Each information must be separated by anything but digits (tabs, spaces, commas, etc.), with one line per individual.
+* If the pedigree is loaded from a file, using `geneakit.genealogy("path/to/pedigree.csv")`, the file *must* start with an irrelevant line (such as `ind father mother sex`) and the following lines must contain, as digits, each individual's ID, their father's ID (`0` if unknown), their mother's ID (`0` if unknown), and their sex (`0` if unknown, `1` if male, `2` if female), in that order. Each information must be separated by anything but digits (tabs, spaces, commas, etc.), with one line per individual.
 
-* Three datasets come from the GENLIB source code: `geneo.geneaJi`, `geneo.genea140`  and `geneo.pop140`. They are part of the project for testing and practice. More information on these datasets is available in the [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GENLIB.pdf). They may be loaded using `geneo.genealogy(geneo.geneaJi)`, etc.
+* Three datasets come from the GENLIB source code: `geneakit.geneaJi`, `geneakit.genea140`  and `geneakit.pop140`. They are part of the project for testing and practice. More information on these datasets is available in the [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GENLIB.pdf). They may be loaded using `geneakit.genealogy(geneakit.geneaJi)`, etc.
 
 * You may also load the pedigree from a Pandas DataFrame, for instance:
 ```python
-import geneo as gen
+import geneakit as gen
 import pandas as pd
 inds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 fathers = [0, 0, 0, 1, 1, 0, 3, 3, 6, 6]
@@ -73,9 +71,9 @@ out <- gen.genout(ped, sorted=TRUE)
 
 
 ```python
-# With the GENEO toolkit
-import geneo as gen
-from geneo import genea140
+# With GeneaKit
+import geneakit as gen
+from geneakit import genea140
 ped = gen.genealogy(genea140)
 pro = gen.pro(ped)
 phi = gen.phi(ped, pro=pro)

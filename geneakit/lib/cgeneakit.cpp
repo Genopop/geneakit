@@ -1,6 +1,6 @@
-#include "../include/cgeneo.hpp"
+#include "../include/cgeneakit.hpp"
 
-NB_MODULE(cgeneo, m) {
+NB_MODULE(cgeneakit, m) {
     m.doc() = "A C++/Python module for genealogical analysis.";
 
     nb::class_<Pedigree<>>(m, "Pedigree")

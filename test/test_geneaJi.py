@@ -1,6 +1,6 @@
 import pandas as pd
-import geneo as gen
-from geneo import geneaJi
+import geneakit as gen
+from geneakit import geneaJi
 
 ped = gen.genealogy(geneaJi)
 

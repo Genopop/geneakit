@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-import cgeneo
+import cgeneakit
 
 def genealogy(input, **kwargs):
     """Create a Genealogy object from pedigree data
@@ -17,7 +17,7 @@ def genealogy(input, **kwargs):
             parents before children. Defaults to False.
             
     Returns:
-        cgeneo.Pedigree: Compiled genealogy object with familial links
+        cgeneakit.Pedigree: Compiled genealogy object with familial links
         and metadata
         
     Raises:
@@ -25,7 +25,7 @@ def genealogy(input, **kwargs):
         ValueError: If input DataFrame has incorrect columns
         
     Examples:
-        >>> import geneo as gen
+        >>> import geneakit as gen
         >>> import pandas as pd
         
         ### From DataFrame
@@ -55,12 +55,12 @@ def genealogy(input, **kwargs):
         sexes = dataframe.iloc[:, 3].values
         sexes = [1 if sex == 'M' else 2 if sex == 'F' else 0 if sex == 'U'
                  else sex for sex in sexes]
-        pedigree = cgeneo.load_pedigree_from_vectors(
+        pedigree = cgeneakit.load_pedigree_from_vectors(
             ids, father_ids, mother_ids, sexes, sorted)
         return pedigree
     elif type(input) == str:
         file_path = input
         if not os.path.exists(input):
             raise FileNotFoundError('File not found: ' + file_path)
-        pedigree = cgeneo.load_pedigree_from_file(file_path, sorted)
+        pedigree = cgeneakit.load_pedigree_from_file(file_path, sorted)
         return pedigree   

@@ -1,94 +1,94 @@
 import pandas as pd
 import numpy as np
-import cgeneo
+import cgeneakit
 from .extract import branching
 
 def noind(gen):
     """Get total number of individuals in the genealogy
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         
     Returns:
         int: Count of all individuals in the pedigree
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import genea140
+        >>> import geneakit as gen
+        >>> from geneakit import genea140
         >>> ped = gen.genealogy(genea140)
         >>> total = gen.noind(ped)
         >>> print(f"Pedigree size: {total}")
         Pedigree size: 41523
     """
-    number_of_individuals = cgeneo.get_number_of_individuals(gen)
+    number_of_individuals = cgeneakit.get_number_of_individuals(gen)
     return number_of_individuals
 
 def nomen(gen):
     """Count male individuals in the genealogy
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         
     Returns:
         int: Number of individuals marked as male (sex=1)
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import genea140
+        >>> import geneakit as gen
+        >>> from geneakit import genea140
         >>> ped = gen.genealogy(genea140)
         >>> males = gen.nomen(ped)
         >>> print(f"Male count: {males}")
         Male count: 20773
     """
-    number_of_men = cgeneo.get_number_of_men(gen)
+    number_of_men = cgeneakit.get_number_of_men(gen)
     return number_of_men
 
 def nowomen(gen):
     """Count female individuals in the genealogy
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         
     Returns:
         int: Number of individuals marked as female (sex=2)
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import genea140
+        >>> import geneakit as gen
+        >>> from geneakit import genea140
         >>> ped = gen.genealogy(genea140)
         >>> females = gen.nowomen(ped)
         >>> print(f"Female count: {females}")
         Female count: 20750
     """
-    number_of_women = cgeneo.get_number_of_women(gen)
+    number_of_women = cgeneakit.get_number_of_women(gen)
     return number_of_women
 
 def depth(gen):
     """Calculate maximum generational depth
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         
     Returns:
         int: Maximum number of generations between probands
              and their deepest ancestors
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import genea140
+        >>> import geneakit as gen
+        >>> from geneakit import genea140
         >>> ped = gen.genealogy(genea140)
         >>> gen_depth = gen.depth(ped)
         >>> print(f"Generational depth: {gen_depth}")
         Generational depth: 18
     """
-    pedigree_depth = cgeneo.get_pedigree_depth(gen)
+    pedigree_depth = cgeneakit.get_pedigree_depth(gen)
     return pedigree_depth
 
 def min(gen, individuals):
     """Calculate minimum ancestral path lengths
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         individuals (list): Target individual IDs
         
     Returns:
@@ -97,15 +97,15 @@ def min(gen, individuals):
             - Single row: 'min' values
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> min_depths = gen.min(ped, [17, 26])
         >>> print(min_depths)
               17  26
         min    4   3
     """
-    minima = cgeneo.get_min_ancestor_path_lengths(gen, individuals)
+    minima = cgeneakit.get_min_ancestor_path_lengths(gen, individuals)
     df = pd.DataFrame([minima], index=['min'], columns=individuals, copy=False)
     return df
 
@@ -113,7 +113,7 @@ def mean(gen, individuals):
     """Calculate average ancestral path lengths
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         individuals (list): Target individual IDs
         
     Returns:
@@ -122,15 +122,15 @@ def mean(gen, individuals):
             - Single row: 'mean' values
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> avg_depths = gen.mean(ped, [17, 26])
         >>> print(avg_depths)
                     17        26
         mean  4.285714  6.052632
     """
-    means = cgeneo.get_mean_ancestor_path_lengths(gen, individuals)
+    means = cgeneakit.get_mean_ancestor_path_lengths(gen, individuals)
     df = pd.DataFrame([means], index=['mean'], columns=individuals, copy=False)
     return df
 
@@ -140,7 +140,7 @@ def max(gen, individuals):
     """Calculate maximum ancestral path lengths
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         individuals (list): Target individual IDs
         
     Returns:
@@ -149,15 +149,15 @@ def max(gen, individuals):
             - Single row: 'max' values
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> max_depths = gen.max(ped, [17, 26])
         >>> print(max_depths)
               17  26
         max    5   7
     """
-    maxima = cgeneo.get_max_ancestor_path_lengths(gen, individuals)
+    maxima = cgeneakit.get_max_ancestor_path_lengths(gen, individuals)
     df = pd.DataFrame([maxima], index=['max'], columns=individuals, copy=False)
     return df
 
@@ -165,7 +165,7 @@ def meangendepth(gen, **kwargs):
     """Calculate expected genealogical depth
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs to include (default: all)
         type (str): Output format:
             'MEAN' - Average depth (default)
@@ -177,8 +177,8 @@ def meangendepth(gen, **kwargs):
             - DataFrame with individual depths for 'IND' type
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> avg_depth = gen.meangendepth(ped)
         >>> print(f"Expected depth: {avg_depth:.2f}")
@@ -193,9 +193,9 @@ def meangendepth(gen, **kwargs):
     """
     pro = kwargs.get('pro', None)
     if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
+        pro = cgeneakit.get_proband_ids(gen)
     type = kwargs.get('type', 'MEAN')
-    data = cgeneo.get_mean_pedigree_depths(gen, pro)
+    data = cgeneakit.get_mean_pedigree_depths(gen, pro)
     if type == 'MEAN':
         return np.mean(data)
     elif type == 'IND':
@@ -236,7 +236,7 @@ def get_generational_counts(gen, pro):
 
 def variance3V(gen, pro=None):
     if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
+        pro = cgeneakit.get_proband_ids(gen)
     N = len(pro)
     if N == 0:
         return 0.0
@@ -268,7 +268,7 @@ def meangendepthVar(gen, **kwargs):
     """Calculate variance of genealogical depth
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs to include (default: all)
         type (str): Calculation type:
             'MEAN' - Population variance (default)
@@ -280,8 +280,8 @@ def meangendepthVar(gen, **kwargs):
             - DataFrame with individual variances for 'IND' type
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> pop_var = gen.meangendepthVar(ped)
         >>> print(f"Population variance: {pop_var:.2f}")
@@ -297,7 +297,7 @@ def meangendepthVar(gen, **kwargs):
     """
     pro = kwargs.get('pro', None)
     if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
+        pro = cgeneakit.get_proband_ids(gen)
     type = kwargs.get('type', 'MEAN')
     if type == 'MEAN':
         variance = variance3V(gen, pro=pro)
@@ -314,28 +314,28 @@ def nochildren(gen, individuals):
     """Count number of children per individual
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         individuals (list): Target individual IDs
         
     Returns:
         list: Child counts in same order as the target individuals
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> child_counts = gen.nochildren(ped, [14, 20])
         >>> print(child_counts)
         [4, 3]
     """
-    number_of_children = cgeneo.get_number_of_children(gen, individuals)
+    number_of_children = cgeneakit.get_number_of_children(gen, individuals)
     return number_of_children
 
 def completeness(gen, **kwargs):
     """Calculate pedigree completeness index
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs (default: all)
         genNo (int, optional): Specific generation to return
         type (str): 'MEAN' for average or 'IND' for per-proband
@@ -346,8 +346,8 @@ def completeness(gen, **kwargs):
             - Columns: Probands (IND) or 'mean'
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> comp = gen.completeness(ped)
         >>> print(comp.head(3))
@@ -360,13 +360,13 @@ def completeness(gen, **kwargs):
     genNo = kwargs.get('genNo', None)
     type = kwargs.get('type', 'MEAN')
     if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
+        pro = cgeneakit.get_proband_ids(gen)
     if type == 'MEAN':
-        data = cgeneo.compute_mean_completeness(gen, pro)
+        data = cgeneakit.compute_mean_completeness(gen, pro)
         pedigree_completeness = pd.DataFrame(
             data, columns=['mean'], copy=False)
     elif type == 'IND':
-        data = cgeneo.compute_individual_completeness(gen, pro)
+        data = cgeneakit.compute_individual_completeness(gen, pro)
         pedigree_completeness = pd.DataFrame(
             data, columns=pro, copy=False)
     if genNo is None:
@@ -378,7 +378,7 @@ def completenessVar(gen, **kwargs):
     """Calculate variance of completeness index
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs (default: all)
         genNo (list, optional): Specific generation(s) to return
         
@@ -391,8 +391,8 @@ def completenessVar(gen, **kwargs):
         Uses sample variance (ddof=1) matching R's var()
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> comp_var = gen.completenessVar(ped)
         >>> print(comp_var)
@@ -410,9 +410,9 @@ def completenessVar(gen, **kwargs):
     genNo = kwargs.get('genNo', None)
     
     if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
+        pro = cgeneakit.get_proband_ids(gen)
     
-    data = cgeneo.compute_individual_completeness(gen, pro)
+    data = cgeneakit.compute_individual_completeness(gen, pro)
     variances = np.var(data, axis=1, ddof=1)
     generations = np.arange(data.shape[0])
     df = pd.DataFrame({'completeness.var': variances}, index=generations)
@@ -426,7 +426,7 @@ def implex(gen, **kwargs):
     """Calculate genealogical implex (pedigree collapse)
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs (default: all)
         genNo (list, optional): Specific generation(s) to return
         type (str): 'MEAN' for average or 'IND' for per-proband
@@ -438,8 +438,8 @@ def implex(gen, **kwargs):
             - Columns: Probands (IND) or 'mean'
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> imp = gen.implex(ped)
         >>> print(imp)
@@ -455,16 +455,16 @@ def implex(gen, **kwargs):
     """
     pro = kwargs.get('pro', None)
     if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
+        pro = cgeneakit.get_proband_ids(gen)
     genNo = kwargs.get('genNo', None)
     type = kwargs.get('type', 'MEAN')
     onlyNewAnc = kwargs.get('onlyNewAnc', False)
     if type == 'MEAN':
-        data = cgeneo.compute_mean_implex(gen, pro, onlyNewAnc)
+        data = cgeneakit.compute_mean_implex(gen, pro, onlyNewAnc)
         pedigree_implex = pd.DataFrame(
             data, columns=['mean'], copy=False)
     elif type == 'IND':
-        data = cgeneo.compute_individual_implex(gen, pro, onlyNewAnc)
+        data = cgeneakit.compute_individual_implex(gen, pro, onlyNewAnc)
         pedigree_implex = pd.DataFrame(
             data, columns=pro, copy=False)
     if genNo is None:
@@ -476,7 +476,7 @@ def implexVar(gen, **kwargs):
     """Calculate variance of implex index
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs (default: all)
         genNo (list, optional): Specific generation(s) to return
         onlyNewAnc (bool): Count only new ancestors
@@ -487,8 +487,8 @@ def implexVar(gen, **kwargs):
             - Column: 'implex.var'
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> imp_var = gen.implexVar(ped)
         >>> print(imp_var)
@@ -507,9 +507,9 @@ def implexVar(gen, **kwargs):
     only_new_anc = kwargs.get('onlyNewAnc', False)
     
     if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
+        pro = cgeneakit.get_proband_ids(gen)
     
-    data = cgeneo.compute_individual_implex(gen, pro, only_new_anc)
+    data = cgeneakit.compute_individual_implex(gen, pro, only_new_anc)
     variances = np.var(data, axis=0, ddof=1)
     generations = np.arange(data.shape[1])
     df = pd.DataFrame({'implex.var': variances}, index=generations)
@@ -523,7 +523,7 @@ def occ(gen, **kwargs):
     """Count ancestor occurrences in proband genealogies
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs (default: all)
         ancestors (list, optional): Target ancestors (default: all founders)
         typeOcc (str): 'IND' for per-proband or 'TOTAL' for sum
@@ -534,8 +534,8 @@ def occ(gen, **kwargs):
             - Columns: Probands (IND) or 'total'
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> occurrences = gen.occ(ped, ancestors=[17, 25])
         >>> print(occurrences)
@@ -546,16 +546,16 @@ def occ(gen, **kwargs):
     pro = kwargs.get('pro', None)
     ancestors = kwargs.get('ancestors', None)
     if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
+        pro = cgeneakit.get_proband_ids(gen)
     if ancestors is None:
-        ancestors = cgeneo.get_founder_ids(gen)
+        ancestors = cgeneakit.get_founder_ids(gen)
     typeOcc = kwargs.get('typeOcc', 'IND')
     if typeOcc == 'TOTAL':
-        data = cgeneo.count_total_occurrences(gen, ancestors, pro)
+        data = cgeneakit.count_total_occurrences(gen, ancestors, pro)
         pedigree_occurrence = pd.DataFrame(
             data, index=ancestors, columns=['total'], copy=False)
     elif typeOcc == 'IND':
-        data = cgeneo.count_individual_occurrences(gen, ancestors, pro)
+        data = cgeneakit.count_individual_occurrences(gen, ancestors, pro)
         pedigree_occurrence = pd.DataFrame(
             data, index=ancestors, columns=pro, copy=False)
     return pedigree_occurrence
@@ -564,7 +564,7 @@ def rec(gen, **kwargs):
     """Calculate ancestor coverage across probands
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs (default: all)
         ancestors (list, optional): Target ancestors (default: all founders)
         
@@ -574,8 +574,8 @@ def rec(gen, **kwargs):
             - Column: 'coverage' (number of probands descending from ancestor)
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> coverage = gen.rec(ped)
         >>> print(coverage)
@@ -590,10 +590,10 @@ def rec(gen, **kwargs):
     pro = kwargs.get('pro', None)
     ancestors = kwargs.get('ancestors', None)
     if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
+        pro = cgeneakit.get_proband_ids(gen)
     if ancestors is None:
-        ancestors = cgeneo.get_founder_ids(gen)
-    data = cgeneo.count_coverage(gen, pro, ancestors)
+        ancestors = cgeneakit.get_founder_ids(gen)
+    data = cgeneakit.count_coverage(gen, pro, ancestors)
     coverage = pd.DataFrame(
         data, index=ancestors, columns=['coverage'], copy=False)
     return coverage
@@ -602,7 +602,7 @@ def findDistance(gen, individuals, ancestor):
     """Calculate minimal genetic distance through common ancestor
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         individuals (list): Pair of individual IDs [ID1, ID2]
         ancestor (int): Common ancestor ID
         
@@ -610,13 +610,13 @@ def findDistance(gen, individuals, ancestor):
         int: Total generational steps (ID1→ancestor + ID2→ancestor)
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> dist = gen.findDistance(ped, [1, 29], 17)
         >>> print(f"Genetic distance: {dist}")
         Genetic distance: 8
     """
-    distance = cgeneo.get_min_common_ancestor_path_length(
+    distance = cgeneakit.get_min_common_ancestor_path_length(
         gen, individuals[0], individuals[1], ancestor)
     return distance

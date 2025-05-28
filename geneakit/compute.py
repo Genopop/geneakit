@@ -3,7 +3,7 @@ import pandas as pd
 from scipy.sparse import csc_matrix
 from scipy.stats import bootstrap
 from scipy.stats import norm
-import cgeneo
+import cgeneakit
 import time
 
 def phi(gen, **kwargs):
@@ -13,7 +13,7 @@ def phi(gen, **kwargs):
     that two individuals share alleles identical by descent from common ancestors.
 
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs to include (default: all)
         verbose (bool): Print computation details if True (default: False)
         compute (bool): Estimate memory if False (default: True)
@@ -37,13 +37,13 @@ def phi(gen, **kwargs):
     """
     pro = kwargs.get('pro', None)
     if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
+        pro = cgeneakit.get_proband_ids(gen)
     verbose = kwargs.get('verbose', False)
     compute = kwargs.get('compute', True)
     sparse = kwargs.get('sparse', False)
     
     if not compute:
-        required_memory = cgeneo.get_required_memory_for_kinships(gen, pro)
+        required_memory = cgeneakit.get_required_memory_for_kinships(gen, pro)
         required_memory = round(required_memory, 2)
         print(f'You will require at least {required_memory} GB of RAM.')
         return
@@ -51,12 +51,12 @@ def phi(gen, **kwargs):
     if verbose: begin = time.time()
         
     if sparse:
-        indices, indptr, data = cgeneo.compute_sparse_kinships(gen, pro, verbose)
+        indices, indptr, data = cgeneakit.compute_sparse_kinships(gen, pro, verbose)
         kinship_matrix = csc_matrix((data, indices, indptr),
                                     shape=(len(pro), len(pro)),
                                     dtype=np.float32)
     else:
-        cmatrix = cgeneo.compute_kinships(gen, pro, verbose)
+        cmatrix = cgeneakit.compute_kinships(gen, pro, verbose)
         kinship_matrix = pd.DataFrame(cmatrix, index=pro, columns=pro, copy=False)
     
     if verbose:
@@ -195,7 +195,7 @@ def f(gen, **kwargs):
     """Calculate inbreeding coefficients (F) for probands
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs (default: all)
         
     Returns:
@@ -216,8 +216,8 @@ def f(gen, **kwargs):
     """
     pro = kwargs.get('pro', None)
     if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
-    cmatrix = cgeneo.compute_inbreedings(gen, pro)
+        pro = cgeneakit.get_proband_ids(gen)
+    cmatrix = cgeneakit.compute_inbreedings(gen, pro)
     return pd.DataFrame(cmatrix, index=pro, columns=['F'], copy=False)
 
 def fCI(vectF, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
@@ -289,7 +289,7 @@ def meioses(gen, **kwargs):
     """Compute meiotic distances between probands
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs (default: all)
         verbose (bool): Print computing info if True
         
@@ -311,11 +311,11 @@ def meioses(gen, **kwargs):
     """
     pro = kwargs.get('pro', None)
     if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
+        pro = cgeneakit.get_proband_ids(gen)
     verbose = kwargs.get('verbose', False)
     
     if verbose: begin = time.time()
-    cmatrix = cgeneo.compute_meiotic_distances(gen, pro, verbose)
+    cmatrix = cgeneakit.compute_meiotic_distances(gen, pro, verbose)
     if verbose: 
         print(f"Time: {time.time()-begin:.2f}s")
         
@@ -325,7 +325,7 @@ def corr(gen, **kwargs):
     """Calculate genetic correlation matrix
     
     Args:
-        gen (cgeneo.Pedigree): Initialized genealogy object
+        gen (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs (default: all)
         verbose (bool): Print computing info if True
         
@@ -339,11 +339,11 @@ def corr(gen, **kwargs):
     """
     pro = kwargs.get('pro', None)
     if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
+        pro = cgeneakit.get_proband_ids(gen)
     verbose = kwargs.get('verbose', False)
     
     if verbose: begin = time.time()
-    cmatrix = cgeneo.compute_correlations(gen, pro, verbose)
+    cmatrix = cgeneakit.compute_correlations(gen, pro, verbose)
     if verbose: print(f"Time: {time.time()-begin:.2f}s")
         
     return pd.DataFrame(cmatrix, index=pro, columns=pro, copy=False)
@@ -352,7 +352,7 @@ def gc(pedigree, **kwargs):
     """Compute genetic contribution of ancestors to probands
     
     Args:
-        pedigree (cgeneo.Pedigree): Initialized genealogy object
+        pedigree (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs (default: all)
         ancestors (list, optional): Founder IDs (default: all founders)
         
@@ -376,9 +376,9 @@ def gc(pedigree, **kwargs):
     pro = kwargs.get('pro', None)
     ancestors = kwargs.get('ancestors', None)
     if pro is None:
-        pro = cgeneo.get_proband_ids(pedigree)
+        pro = cgeneakit.get_proband_ids(pedigree)
     if ancestors is None:
-        ancestors = cgeneo.get_founder_ids(pedigree)
+        ancestors = cgeneakit.get_founder_ids(pedigree)
         
-    cmatrix = cgeneo.compute_genetic_contributions(pedigree, pro, ancestors)
+    cmatrix = cgeneakit.compute_genetic_contributions(pedigree, pro, ancestors)
     return pd.DataFrame(cmatrix, index=pro, columns=ancestors, copy=False)

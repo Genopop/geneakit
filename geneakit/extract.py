@@ -1,4 +1,4 @@
-import cgeneo
+import cgeneakit
 
 def branching(gen, **kwargs):
     """Extract a subpedigree containing specified individuals and ancestors
@@ -7,21 +7,21 @@ def branching(gen, **kwargs):
     and their ancestral paths to the designated founders.
 
     Args:
-        gen (cgeneo.Pedigree): Source genealogy object
+        gen (cgeneakit.Pedigree): Source genealogy object
         pro (list, optional): Target proband IDs to include. 
             Defaults to all probands in the genealogy.
         ancestors (list, optional): Ancestor IDs to retain.
             Defaults to all founders in the original pedigree.
             
     Returns:
-        cgeneo.Pedigree: New pedigree object containing only:
+        cgeneakit.Pedigree: New pedigree object containing only:
             - Specified probands
             - Specified ancestors
             - All connecting individuals
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import genea140
+        >>> import geneakit as gen
+        >>> from geneakit import genea140
         >>> ped = gen.genealogy(genea140)
         >>> sub_ped = gen.branching(ped, pro=[409033, 408728])
         >>> print(len(sub_ped))
@@ -36,10 +36,10 @@ def branching(gen, **kwargs):
     pro = kwargs.get('pro', None)
     ancestors = kwargs.get('ancestors', None)
     if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
+        pro = cgeneakit.get_proband_ids(gen)
     if ancestors is None:
-        ancestors = cgeneo.get_founder_ids(gen)
-    extracted_pedigree = cgeneo.extract_pedigree(gen, pro, ancestors)
+        ancestors = cgeneakit.get_founder_ids(gen)
+    extracted_pedigree = cgeneakit.extract_pedigree(gen, pro, ancestors)
     return extracted_pedigree
 
 def lineages(gen, **kwargs):
@@ -49,21 +49,21 @@ def lineages(gen, **kwargs):
     direct maternal or paternal ancestry.
 
     Args:
-        gen (cgeneo.Pedigree): Source genealogy object
+        gen (cgeneakit.Pedigree): Source genealogy object
         pro (list, optional): Target proband IDs to trace.
             Defaults to all probands in the genealogy.
         maternal (bool): Trace maternal lineage if True (default),
                          paternal lineage if False.
             
     Returns:
-        cgeneo.Pedigree: Lineage pedigree containing:
+        cgeneakit.Pedigree: Lineage pedigree containing:
             - Specified probands
             - Direct maternal/paternal ancestors
             - No collateral relatives
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import genea140
+        >>> import geneakit as gen
+        >>> from geneakit import genea140
         >>> ped = gen.genealogy(genea140)
         >>> mat_lineage = gen.lineages(ped, maternal=True)
         >>> pat_lineage = gen.lineages(ped, pro=[717634], maternal=False)
@@ -76,7 +76,7 @@ def lineages(gen, **kwargs):
     """
     pro = kwargs.get('pro', None)
     if pro is None:
-        pro = cgeneo.get_proband_ids(gen)
+        pro = cgeneakit.get_proband_ids(gen)
     maternal = kwargs.get('maternal', True)
-    extracted_pedigree = cgeneo.extract_lineages(gen, pro, maternal)
+    extracted_pedigree = cgeneakit.extract_lineages(gen, pro, maternal)
     return extracted_pedigree
