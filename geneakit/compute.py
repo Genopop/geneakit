@@ -25,8 +25,8 @@ def phi(gen, **kwargs):
             - Values: Kinship coefficients (0-0.5+)
 
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> kin_mat = gen.phi(ped)
         >>> print(kin_mat)
@@ -74,8 +74,8 @@ def phiMean(kinship_matrix):
         float: Mean kinship coefficient across all unique proband pairs
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> kin_mat = gen.phi(ped)
         >>> mean_phi = gen.phiMean(kin_mat)
@@ -105,8 +105,8 @@ def phiOver(phiMatrix, threshold):
             - kinship: Coefficient value
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> kin_mat = gen.phi(ped)
         >>> high_kinship = gen.phiOver(kin_mat, 0.1)
@@ -137,8 +137,8 @@ def phiCI(phiMatrix, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
         pd.DataFrame: Confidence bounds for each probability pair
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import genea140
+        >>> import geneakit as gen
+        >>> from geneakit import genea140
         >>> ped = gen.genealogy(genea140)
         >>> kin_mat = gen.phi(ped)
         >>> ci = gen.phiCI(kin_mat)
@@ -204,8 +204,8 @@ def f(gen, **kwargs):
             - Column: 'F' values (0-1)
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> inbreeding = gen.f(ped)
         >>> print(inbreeding)
@@ -232,8 +232,8 @@ def fCI(vectF, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
         pd.DataFrame: Confidence bounds using bias-corrected method
         
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> inbreeding = gen.f(ped)
         >>> f_ci = gen.fCI(inbreeding)
@@ -299,8 +299,8 @@ def meioses(gen, **kwargs):
             - Values: Minimum meioses between pairs
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> dist_mat = gen.meioses(ped)
         >>> print(dist_mat)
@@ -363,8 +363,8 @@ def gc(pedigree, **kwargs):
             - Values: Expected genetic contributions
             
     Examples:
-        >>> import geneo as gen
-        >>> from geneo import geneaJi
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
         >>> ped = gen.genealogy(geneaJi)
         >>> contributions = gen.gc(ped)
         >>> print(contributions)
