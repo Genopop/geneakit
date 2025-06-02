@@ -27,7 +27,7 @@ The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GEN
 
 * Clone this repository, `cd` into it, then run `pip install .`. Alternatively, without cloning, run:
     ```
-    pip install https://github.com/GPhMorin/geneakit/archive/main.zip
+    pip install https://github.com/Genopop/geneakit/archive/main.zip
     ```
     Both options install two packages, `geneakit` and `cgeneakit` (used by the former internally), and their dependencies. You will need a compiler that supports C++17.
 
