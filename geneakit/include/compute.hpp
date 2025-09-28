@@ -91,8 +91,51 @@ Matrix<double> compute_kinships(
     Pedigree<> &pedigree, std::vector<int> proband_ids = {},
     bool verbose = false);
 
+// Helper structure for CSR matrix operations
+struct CSRMatrix {
+    std::vector<int> indices;
+    std::vector<int> indptr;
+    std::vector<float> data;
+    int n_rows;
+    int n_cols;
+    
+    CSRMatrix(int rows, int cols) : n_rows(rows), n_cols(cols) {
+        indptr.resize(rows + 1, 0);
+    }
+    
+    void reserve(int nnz) {
+        indices.reserve(nnz);
+        data.reserve(nnz);
+    }
+    
+    void clear() {
+        indices.clear();
+        data.clear();
+        std::fill(indptr.begin(), indptr.end(), 0);
+    }
+};
+
+// Function declarations for sparse kinship computation
+phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>> csr_to_hashmap(const CSRMatrix& csr);
+
+float sparse_compute_kinship(
+    const Individual<Index> *individual1,
+    const Individual<Index> *individual2,
+    const phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>>& founder_matrix);
+
+void sparse_compute_kinship_with_oneself(
+    std::vector<Individual<Index> *> &vertex_cut,
+    const phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>>& founder_matrix,
+    CSRMatrix& result_matrix);
+
+void sparse_compute_kinship_between_probands(
+    std::vector<Individual<Index> *> &vertex_cut,
+    const phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>>& founder_matrix,
+    CSRMatrix& result_matrix);
+
+CSRMatrix merge_csr_matrices(const CSRMatrix& matrix1, const CSRMatrix& matrix2);
+
 // Returns a sparse matrix of the kinship coefficients.
-// Adapted from the algorithm from Kirkpatrick et al.
 std::tuple<std::vector<int>, std::vector<int>, std::vector<float>>
 compute_sparse_kinships(Pedigree<> &pedigree,
     std::vector<int> proband_ids = {}, bool verbose = false);
