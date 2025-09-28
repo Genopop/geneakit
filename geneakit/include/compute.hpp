@@ -54,7 +54,6 @@ std::vector<std::vector<int>> copy_top_down(
 
 // Find the intersection of the two sets
 std::vector<std::vector<int>> intersect_both_directions(
-    Pedigree<> &pedigree,
     std::vector<std::vector<int>> &bottom_up,
     std::vector<std::vector<int>> &top_down);
 

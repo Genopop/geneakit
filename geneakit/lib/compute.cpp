@@ -117,7 +117,6 @@ std::vector<std::vector<int>> copy_top_down(
 
 // Find the intersection of the two sets
 std::vector<std::vector<int>> intersect_both_directions(
-    Pedigree<> &pedigree,
     std::vector<std::vector<int>> &bottom_up,
     std::vector<std::vector<int>> &top_down) {
     std::vector<std::vector<int>> vertex_cuts;
@@ -149,7 +148,7 @@ std::vector<std::vector<int>> cut_vertices(
     std::vector<std::vector<int>> bottom_up, top_down;
     bottom_up = copy_bottom_up(generations);
     top_down = copy_top_down(generations);
-    vertex_cuts = intersect_both_directions(pedigree, bottom_up, top_down);
+    vertex_cuts = intersect_both_directions(bottom_up, top_down);
     // Set the last vertex cut to the probands
     std::vector<int> probands;
     for (const int id : proband_ids) {
@@ -275,7 +274,7 @@ double get_required_memory_for_kinships(
 
     // Calculate the size of each pair of vertex cuts
     std::vector<int> sizes;
-    for (size_t i = 0; i < vertex_cuts.size() - 1; i++) {
+    for (int i = 0; i < (int) vertex_cuts.size() - 1; i++) {
         sizes.push_back(vertex_cuts[i].size() + vertex_cuts[i + 1].size());
     }
 
@@ -284,8 +283,8 @@ double get_required_memory_for_kinships(
 
     // Get the two sizes that sum to max_size
     int size1 = 0, size2 = 0;
-    for (size_t i = 0; i < sizes.size(); i++) {
-        if (vertex_cuts[i].size() + vertex_cuts[i + 1].size() == max_size) {
+    for (int i = 0; i < (int) sizes.size(); i++) {
+        if ((int) vertex_cuts[i].size() + (int) vertex_cuts[i + 1].size() == max_size) {
             size1 = vertex_cuts[i].size();
             size2 = vertex_cuts[i + 1].size();
             break;
@@ -314,7 +313,7 @@ Matrix<double> compute_kinships(Pedigree<> &pedigree,
         vertex_cuts[0].size(), vertex_cuts[0].size()
     );
     #pragma omp parallel for
-    for (int i = 0; i < vertex_cuts[0].size(); i++) {
+    for (int i = 0; i < (int) vertex_cuts[0].size(); i++) {
         founder_matrix[i][i] = 0.5;
     }
     if (verbose) {
@@ -610,14 +609,19 @@ std::vector<double> compute_inbreedings(Pedigree<> &pedigree,
             for (j = 1; j <= MIP; ++j) x[j] = 0.0; // set to 0 for next evaluation of sire
         }
     }
-    for (i = 0; i < proband_ids.size(); i++) {
+    for (int i = 0; i < (int) proband_ids.size(); i++) {
         const int id = proband_ids[i];
         Individual<> *individual = extracted_pedigree.individuals.at(id);
         inbreeding_coefficients[i] = F[individual->rank + 1];
     }
-    delete[] Ped, rPed;
-    delete[] SId, Link, MaxIdP;
-    delete[] F, B, x;
+    delete[] Ped;
+    delete[] rPed;
+    delete[] SId;
+    delete[] Link;
+    delete[] MaxIdP;
+    delete[] F;
+    delete[] B;
+    delete[] x;
     return inbreeding_coefficients;
 }
 
