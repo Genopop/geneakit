@@ -32,9 +32,15 @@ SOFTWARE.
 #include <cstdint>
 #include <limits>
 #include <parallel_hashmap/phmap.h>
+#include <Eigen/Sparse>
+#include <Eigen/Dense>
 #include "identify.hpp"
 #include "extract.hpp"
 #include "matrix.hpp"
+
+// Type aliases for Eigen sparse matrices
+using SparseMat = Eigen::SparseMatrix<float, Eigen::ColMajor>;
+using Triplet = Eigen::Triplet<float>;
 
 // Returns the previous generation of a set of individuals.
 std::vector<int> get_previous_generation(Pedigree<> &pedigree,
@@ -91,32 +97,8 @@ Matrix<double> compute_kinships(
     Pedigree<> &pedigree, std::vector<int> proband_ids = {},
     bool verbose = false);
 
-// Helper structure for CSR matrix operations
-struct CSRMatrix {
-    std::vector<int> indices;
-    std::vector<int> indptr;
-    std::vector<float> data;
-    int n_rows;
-    int n_cols;
-    
-    CSRMatrix(int rows, int cols) : n_rows(rows), n_cols(cols) {
-        indptr.resize(rows + 1, 0);
-    }
-    
-    void reserve(int nnz) {
-        indices.reserve(nnz);
-        data.reserve(nnz);
-    }
-    
-    void clear() {
-        indices.clear();
-        data.clear();
-        std::fill(indptr.begin(), indptr.end(), 0);
-    }
-};
-
 // Function declarations for sparse kinship computation
-phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>> csr_to_hashmap(const CSRMatrix& csr);
+phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>> csr_to_hashmap(const SparseMat& csr);
 
 float sparse_compute_kinship(
     const Individual<Index> *individual1,
@@ -126,18 +108,17 @@ float sparse_compute_kinship(
 void sparse_compute_kinship_with_oneself(
     std::vector<Individual<Index> *> &vertex_cut,
     const phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>>& founder_matrix,
-    CSRMatrix& result_matrix);
+    SparseMat& result_matrix);
 
 void sparse_compute_kinship_between_probands(
     std::vector<Individual<Index> *> &vertex_cut,
     const phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>>& founder_matrix,
-    CSRMatrix& result_matrix);
+    SparseMat& result_matrix);
 
-CSRMatrix merge_csr_matrices(const CSRMatrix& matrix1, const CSRMatrix& matrix2);
+SparseMat merge_csr_matrices(const SparseMat& matrix1, const SparseMat& matrix2);
 
 // Returns a sparse matrix of the kinship coefficients.
-std::tuple<std::vector<int>, std::vector<int>, std::vector<float>>
-compute_sparse_kinships(Pedigree<> &pedigree,
+SparseMat compute_sparse_kinships(Pedigree<> &pedigree,
     std::vector<int> proband_ids = {}, bool verbose = false);
 
 // Returns the mean kinship coefficient of a kinship matrix.

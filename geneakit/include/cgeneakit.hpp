@@ -4,6 +4,7 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/make_iterator.h>
 #include <nanobind/stl/tuple.h>
+#include <nanobind/eigen/sparse.h>
 
 /*------------------------------------------------------------------------------
 MIT License

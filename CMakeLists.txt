@@ -17,6 +17,10 @@ endif()
 # Link to external/include/parallel_hashmap/phmap.h
 include_directories(${CMAKE_SOURCE_DIR}/external)
 
+# Include Eigen
+find_package(Eigen3 REQUIRED NO_MODULE)
+include_directories(${Eigen3_INCLUDE_DIRS})
+
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ version selection")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -51,4 +55,5 @@ else()
   endif()
 endif()
 
+target_link_libraries(cgeneakit PRIVATE Eigen3::Eigen)
 install(TARGETS cgeneakit DESTINATION .)

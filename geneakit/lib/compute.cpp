@@ -23,6 +23,7 @@ SOFTWARE.
 ------------------------------------------------------------------------------*/
 
 #include "../include/compute.hpp"
+#include "../include/compute.hpp"
 
 // Returns the previous generation of a set of individuals.
 std::vector<int> get_previous_generation(Pedigree<> &pedigree,
@@ -156,6 +157,289 @@ std::vector<std::vector<int>> cut_vertices(
     }
     vertex_cuts[vertex_cuts.size() - 1] = probands;
     return vertex_cuts;
+}
+
+// Convert Eigen sparse matrix to hashmap (ONLY used between generations, not at the end)
+phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>> eigen_to_hashmap(const SparseMat& sparse) {
+    phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>> hashmap_matrix;
+    
+    #pragma omp parallel
+    {
+        // Each thread builds its own local hashmap
+        phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>> local_hashmap;
+        
+        #pragma omp for
+        for (int k = 0; k < sparse.outerSize(); ++k) {
+            bool has_nonzero = false;
+            for (SparseMat::InnerIterator it(sparse, k); it; ++it) {
+                if (it.value() != 0.0f) {
+                    if (!has_nonzero) {
+                        local_hashmap.emplace(it.row(), phmap::flat_hash_map<int, float>());
+                        has_nonzero = true;
+                    }
+                    local_hashmap[it.row()].emplace(it.col(), it.value());
+                }
+            }
+        }
+        
+        // Merge local hashmaps into global hashmap
+        #pragma omp critical
+        {
+            for (auto& pair : local_hashmap) {
+                hashmap_matrix[pair.first] = std::move(pair.second);
+            }
+        }
+    }
+    
+    return hashmap_matrix;
+}
+
+// Sparse version of compute_kinship function for fast retrieval from hashmap
+float sparse_compute_kinship(
+    const Individual<Index> *individual1,
+    const Individual<Index> *individual2,
+    const phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>>& founder_matrix) {
+    
+    float kinship = 0.0f;
+    const int founder_index1 = individual1->data.index;
+    const int founder_index2 = individual2->data.index;
+    
+    if (founder_index1 != -1 && founder_index2 != -1) {
+        // Look up kinship coefficient in founder matrix
+        auto it1 = founder_matrix.find(founder_index1);
+        if (it1 != founder_matrix.end()) {
+            auto it2 = it1->second.find(founder_index2);
+            if (it2 != it1->second.end()) {
+                kinship = it2->second;
+            }
+        }
+        // Try symmetric lookup if not found
+        if (kinship == 0.0f && founder_index1 != founder_index2) {
+            auto it1_sym = founder_matrix.find(founder_index2);
+            if (it1_sym != founder_matrix.end()) {
+                auto it2_sym = it1_sym->second.find(founder_index1);
+                if (it2_sym != it1_sym->second.end()) {
+                    kinship = it2_sym->second;
+                }
+            }
+        }
+    } else if (founder_index1 != -1) {
+        // Recursive case: individual2 is not a founder
+        if (individual2->father) {
+            kinship += 0.5f * sparse_compute_kinship(
+                individual1, individual2->father, founder_matrix);
+        }
+        if (individual2->mother) {
+            kinship += 0.5f * sparse_compute_kinship(
+                individual1, individual2->mother, founder_matrix);
+        }
+    } else if (founder_index2 != -1) {
+        // Recursive case: individual1 is not a founder
+        if (individual1->father) {
+            kinship += 0.5f * sparse_compute_kinship(
+                individual1->father, individual2, founder_matrix);
+        }
+        if (individual1->mother) {
+            kinship += 0.5f * sparse_compute_kinship(
+                individual1->mother, individual2, founder_matrix);
+        }
+    } else if (individual1->rank == individual2->rank) {
+        // Same individual
+        kinship = 0.5f;
+        if (individual1->father && individual1->mother) {
+            kinship += 0.5f * sparse_compute_kinship(
+                individual1->father, individual1->mother, founder_matrix);
+        }
+    } else if (individual1->rank < individual2->rank) {
+        // Karigl's recursive algorithm
+        if (individual2->father) {
+            kinship += 0.5f * sparse_compute_kinship(
+                individual1, individual2->father, founder_matrix);
+        }
+        if (individual2->mother) {
+            kinship += 0.5f * sparse_compute_kinship(
+                individual1, individual2->mother, founder_matrix);
+        }
+    } else {
+        // individual1->rank > individual2->rank
+        if (individual1->father) {
+            kinship += 0.5f * sparse_compute_kinship(
+                individual1->father, individual2, founder_matrix);
+        }
+        if (individual1->mother) {
+            kinship += 0.5f * sparse_compute_kinship(
+                individual1->mother, individual2, founder_matrix);
+        }
+    }
+    return kinship;
+}
+
+// Build Eigen sparse matrix for kinship with oneself
+void sparse_compute_kinship_with_oneself(
+    std::vector<Individual<Index> *> &vertex_cut,
+    const phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>>& founder_matrix,
+    std::vector<Triplet>& triplets) {
+    
+    int n = static_cast<int>(vertex_cut.size());
+    
+    #pragma omp parallel
+    {
+        std::vector<Triplet> local_triplets;
+        
+        #pragma omp for
+        for (int i = 0; i < n; i++) {
+            const Individual<Index> *individual = vertex_cut[i];
+            float kinship = 0.5f;
+            if (individual->father && individual->mother) {
+                kinship += 0.5f * sparse_compute_kinship(
+                    individual->father, individual->mother, founder_matrix
+                );
+            }
+            
+            // Store diagonal element
+            if (kinship != 0.0f) {
+                local_triplets.emplace_back(i, i, kinship);
+            }
+        }
+        
+        #pragma omp critical
+        {
+            triplets.insert(triplets.end(), local_triplets.begin(), local_triplets.end());
+        }
+    }
+}
+
+// Build Eigen sparse matrix for kinship between probands
+void sparse_compute_kinship_between_probands(
+    std::vector<Individual<Index> *> &vertex_cut,
+    const phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>>& founder_matrix,
+    std::vector<Triplet>& triplets) {
+    
+    int n = static_cast<int>(vertex_cut.size());
+    
+    #pragma omp parallel
+    {
+        std::vector<Triplet> local_triplets;
+        
+        #pragma omp for
+        for (int i = 0; i < n; i++) {
+            Individual<Index> *individual1 = vertex_cut[i];
+            for (int j = 0; j < i; j++) {
+                Individual<Index> *individual2 = vertex_cut[j];
+                float kinship = sparse_compute_kinship(
+                    individual1, individual2, founder_matrix
+                );
+                
+                if (kinship != 0.0f) {
+                    // Store both symmetric entries
+                    local_triplets.emplace_back(i, j, kinship);
+                    local_triplets.emplace_back(j, i, kinship);
+                }
+            }
+        }
+        
+        #pragma omp critical
+        {
+            triplets.insert(triplets.end(), local_triplets.begin(), local_triplets.end());
+        }
+    }
+}
+
+// Returns a sparse matrix of the kinship coefficients using Eigen
+SparseMat compute_sparse_kinships(Pedigree<> &pedigree,
+    std::vector<int> proband_ids, bool verbose) {
+    
+    // Get the proband IDs if they are not provided
+    if (proband_ids.empty()) {
+        proband_ids = get_proband_ids(pedigree);
+    }
+    
+    // Handle edge cases
+    if (proband_ids.empty()) {
+        return SparseMat(0, 0);
+    }
+    
+    if (proband_ids.size() == 1) {
+        SparseMat result(1, 1);
+        result.insert(0, 0) = 0.5f;
+        result.makeCompressed();
+        return result;
+    }
+    
+    // Convert the pedigree to a kinship pedigree
+    Pedigree<Index> kinship_pedigree(pedigree);
+    
+    // Cut the vertices
+    std::vector<std::vector<int>> vertex_cuts = cut_vertices(pedigree, proband_ids);
+    
+    // Initialize founder matrix as hashmap
+    phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>> founder_matrix;
+    
+    // Initialize founders with self-kinship of 0.5
+    if (!vertex_cuts.empty()) {
+        for (int i = 0; i < static_cast<int>(vertex_cuts[0].size()); i++) {
+            founder_matrix[i][i] = 0.5f;
+        }
+    }
+    
+    if (verbose) {
+        int count = 0;
+        for (const std::vector<int>& vertex_cut : vertex_cuts) {
+            printf("Cut size %d/%d: %d\n",
+                ++count, static_cast<int>(vertex_cuts.size()), static_cast<int>(vertex_cut.size()));
+        }
+        printf("Computing the sparse kinship matrix:\n");
+    }
+    
+    int cut_count = 0;
+    SparseMat final_result;
+    
+    // Go from the top to the bottom of the pedigree
+    for (int i = 0; i < static_cast<int>(vertex_cuts.size()) - 1; i++) {
+        if (verbose) {
+            printf("Cut %d out of %d\n", ++cut_count, static_cast<int>(vertex_cuts.size()));
+        }
+        
+        // Index the founders
+        int founder_index = 0;
+        for (const int id : vertex_cuts[i]) {
+            Individual<Index> *individual = kinship_pedigree.individuals.at(id);
+            individual->data.index = founder_index++;
+        }
+        
+        // Get probands for this generation
+        std::vector<Individual<Index> *> probands;
+        for (const int id : vertex_cuts[i + 1]) {
+            probands.push_back(kinship_pedigree.individuals.at(id));
+        }
+        
+        // Build triplet list for sparse matrix
+        std::vector<Triplet> triplets;
+        triplets.reserve(probands.size() * probands.size() / 4); // Estimate
+        
+        // Compute kinships
+        sparse_compute_kinship_with_oneself(probands, founder_matrix, triplets);
+        sparse_compute_kinship_between_probands(probands, founder_matrix, triplets);
+        
+        // Build Eigen sparse matrix from triplets
+        SparseMat proband_matrix(probands.size(), probands.size());
+        proband_matrix.setFromTriplets(triplets.begin(), triplets.end());
+        proband_matrix.makeCompressed();
+        
+        // If this is the last generation, return the sparse matrix directly
+        if (i == static_cast<int>(vertex_cuts.size()) - 2) {
+            if (verbose) {
+                printf("Returning final sparse matrix directly\n");
+            }
+            return proband_matrix;
+        }
+        
+        // Otherwise, convert sparse matrix to hashmap for next iteration
+        founder_matrix = eigen_to_hashmap(proband_matrix);
+    }
+    
+    // This should never be reached, but handle empty case
+    return SparseMat(0, 0);
 }
 
 // Returns the kinship coefficient between two individuals.
@@ -355,379 +639,6 @@ Matrix<double> compute_kinships(Pedigree<> &pedigree,
         founder_matrix = std::move(proband_matrix);
     }
     return founder_matrix;
-}
-
-// Convert CSR matrix to hashmap (ONLY used between generations, not at the end)
-phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>> csr_to_hashmap(const CSRMatrix& csr) {
-    phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>> hashmap_matrix;
-    
-    #pragma omp parallel
-    {
-        // Each thread builds its own local hashmap
-        phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>> local_hashmap;
-        
-        #pragma omp for
-        for (int i = 0; i < csr.n_rows; i++) {
-            if (csr.indptr[i + 1] > csr.indptr[i]) {
-                local_hashmap.emplace(i, phmap::flat_hash_map<int, float>());
-                for (int j = csr.indptr[i]; j < csr.indptr[i + 1]; j++) {
-                    if (csr.data[j] != 0.0f) {
-                        local_hashmap[i].emplace(csr.indices[j], csr.data[j]);
-                    }
-                }
-            }
-        }
-        
-        // Merge local hashmaps into global hashmap
-        #pragma omp critical
-        {
-            for (auto& pair : local_hashmap) {
-                hashmap_matrix[pair.first] = std::move(pair.second);
-            }
-        }
-    }
-    
-    return hashmap_matrix;
-}
-
-// Sparse version of compute_kinship function for fast retrieval from hashmap
-float sparse_compute_kinship(
-    const Individual<Index> *individual1,
-    const Individual<Index> *individual2,
-    const phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>>& founder_matrix) {
-    
-    float kinship = 0.0f;
-    const int founder_index1 = individual1->data.index;
-    const int founder_index2 = individual2->data.index;
-    
-    if (founder_index1 != -1 && founder_index2 != -1) {
-        // Look up kinship coefficient in founder matrix
-        auto it1 = founder_matrix.find(founder_index1);
-        if (it1 != founder_matrix.end()) {
-            auto it2 = it1->second.find(founder_index2);
-            if (it2 != it1->second.end()) {
-                kinship = it2->second;
-            }
-        }
-        // Try symmetric lookup if not found
-        if (kinship == 0.0f && founder_index1 != founder_index2) {
-            auto it1_sym = founder_matrix.find(founder_index2);
-            if (it1_sym != founder_matrix.end()) {
-                auto it2_sym = it1_sym->second.find(founder_index1);
-                if (it2_sym != it1_sym->second.end()) {
-                    kinship = it2_sym->second;
-                }
-            }
-        }
-    } else if (founder_index1 != -1) {
-        // Recursive case: individual2 is not a founder
-        if (individual2->father) {
-            kinship += 0.5f * sparse_compute_kinship(
-                individual1, individual2->father, founder_matrix);
-        }
-        if (individual2->mother) {
-            kinship += 0.5f * sparse_compute_kinship(
-                individual1, individual2->mother, founder_matrix);
-        }
-    } else if (founder_index2 != -1) {
-        // Recursive case: individual1 is not a founder
-        if (individual1->father) {
-            kinship += 0.5f * sparse_compute_kinship(
-                individual1->father, individual2, founder_matrix);
-        }
-        if (individual1->mother) {
-            kinship += 0.5f * sparse_compute_kinship(
-                individual1->mother, individual2, founder_matrix);
-        }
-    } else if (individual1->rank == individual2->rank) {
-        // Same individual
-        kinship = 0.5f;
-        if (individual1->father && individual1->mother) {
-            kinship += 0.5f * sparse_compute_kinship(
-                individual1->father, individual1->mother, founder_matrix);
-        }
-    } else if (individual1->rank < individual2->rank) {
-        // Karigl's recursive algorithm
-        if (individual2->father) {
-            kinship += 0.5f * sparse_compute_kinship(
-                individual1, individual2->father, founder_matrix);
-        }
-        if (individual2->mother) {
-            kinship += 0.5f * sparse_compute_kinship(
-                individual1, individual2->mother, founder_matrix);
-        }
-    } else {
-        // individual1->rank > individual2->rank
-        if (individual1->father) {
-            kinship += 0.5f * sparse_compute_kinship(
-                individual1->father, individual2, founder_matrix);
-        }
-        if (individual1->mother) {
-            kinship += 0.5f * sparse_compute_kinship(
-                individual1->mother, individual2, founder_matrix);
-        }
-    }
-    return kinship;
-}
-
-// Build CSR matrix for kinship with oneself
-void sparse_compute_kinship_with_oneself(
-    std::vector<Individual<Index> *> &vertex_cut,
-    const phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>>& founder_matrix,
-    CSRMatrix& result_matrix) {
-    
-    int n = static_cast<int>(vertex_cut.size());
-    std::vector<std::vector<std::pair<int, float>>> temp_rows(n);
-    
-    #pragma omp parallel for
-    for (int i = 0; i < n; i++) {
-        const Individual<Index> *individual = vertex_cut[i];
-        float kinship = 0.5f;
-        if (individual->father && individual->mother) {
-            kinship += 0.5f * sparse_compute_kinship(
-                individual->father, individual->mother, founder_matrix
-            );
-        }
-        
-        // Store diagonal element
-        if (kinship != 0.0f) {
-            temp_rows[i].emplace_back(i, kinship);
-        }
-    }
-    
-    // Build final CSR matrix
-    result_matrix.indptr[0] = 0;
-    for (int i = 0; i < n; i++) {
-        result_matrix.indptr[i + 1] = result_matrix.indptr[i] + static_cast<int>(temp_rows[i].size());
-    }
-    
-    int total_nnz = result_matrix.indptr[n];
-    result_matrix.indices.resize(total_nnz);
-    result_matrix.data.resize(total_nnz);
-    
-    #pragma omp parallel for
-    for (int i = 0; i < n; i++) {
-        int start = result_matrix.indptr[i];
-        for (size_t j = 0; j < temp_rows[i].size(); j++) {
-            result_matrix.indices[start + static_cast<int>(j)] = temp_rows[i][j].first;
-            result_matrix.data[start + static_cast<int>(j)] = temp_rows[i][j].second;
-        }
-    }
-}
-
-// Build CSR matrix for kinship between probands
-void sparse_compute_kinship_between_probands(
-    std::vector<Individual<Index> *> &vertex_cut,
-    const phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>>& founder_matrix,
-    CSRMatrix& result_matrix) {
-    
-    int n = static_cast<int>(vertex_cut.size());
-    std::vector<std::vector<std::pair<int, float>>> temp_rows(n);
-    
-    // Step 1: Compute the lower triangle of the kinship matrix in parallel.
-    // Each thread only writes to its own row temp_rows[i], so this is race-free.
-    #pragma omp parallel for
-    for (int i = 0; i < n; i++) {
-        Individual<Index> *individual1 = vertex_cut[i];
-        for (int j = 0; j < i; j++) {
-            Individual<Index> *individual2 = vertex_cut[j];
-            float kinship = sparse_compute_kinship(
-                individual1, individual2, founder_matrix
-            );
-            
-            if (kinship != 0.0f) {
-                // Store pair (column_index, value) for the lower triangle
-                temp_rows[i].emplace_back(j, kinship);
-            }
-        }
-    }
-    
-    // Step 2: Create the full symmetric matrix from the lower triangle.
-    // This part is serial to avoid race conditions when writing to temp_rows[j].
-    for (int i = 0; i < n; i++) {
-        for (const auto& pair : temp_rows[i]) {
-            int j = pair.first;
-            float kinship = pair.second;
-            // Add the symmetric entry to the upper triangle part.
-            temp_rows[j].emplace_back(i, kinship);
-        }
-    }
-
-    // Step 3: Sort each row by column index in parallel.
-    #pragma omp parallel for
-    for (int i = 0; i < n; i++) {
-        std::sort(temp_rows[i].begin(), temp_rows[i].end());
-    }
-    
-    // Step 4: Build the final CSR matrix from the sorted rows.
-    result_matrix.indptr[0] = 0;
-    int total_nnz = 0;
-    for (int i = 0; i < n; i++) {
-        total_nnz += static_cast<int>(temp_rows[i].size());
-        result_matrix.indptr[i + 1] = total_nnz;
-    }
-    
-    result_matrix.indices.resize(total_nnz);
-    result_matrix.data.resize(total_nnz);
-    
-    #pragma omp parallel for
-    for (int i = 0; i < n; i++) {
-        int start = result_matrix.indptr[i];
-        for (size_t j = 0; j < temp_rows[i].size(); j++) {
-            result_matrix.indices[start + j] = temp_rows[i][j].first;
-            result_matrix.data[start + j] = temp_rows[i][j].second;
-        }
-    }
-}
-
-// Merge two CSR matrices
-CSRMatrix merge_csr_matrices(const CSRMatrix& matrix1, const CSRMatrix& matrix2) {
-    CSRMatrix result(matrix1.n_rows, matrix1.n_cols);
-    
-    std::vector<phmap::flat_hash_map<int, float>> temp_rows(matrix1.n_rows);
-    
-    // Add elements from matrix1
-    #pragma omp parallel for
-    for (int i = 0; i < matrix1.n_rows; i++) {
-        for (int j = matrix1.indptr[i]; j < matrix1.indptr[i + 1]; j++) {
-            temp_rows[i][matrix1.indices[j]] += matrix1.data[j];
-        }
-    }
-    
-    // Add elements from matrix2
-    #pragma omp parallel for
-    for (int i = 0; i < matrix2.n_rows; i++) {
-        for (int j = matrix2.indptr[i]; j < matrix2.indptr[i + 1]; j++) {
-            temp_rows[i][matrix2.indices[j]] += matrix2.data[j];
-        }
-    }
-    
-    // Build final CSR matrix
-    result.indptr[0] = 0;
-    for (int i = 0; i < matrix1.n_rows; i++) {
-        result.indptr[i + 1] = result.indptr[i] + static_cast<int>(temp_rows[i].size());
-    }
-    
-    int total_nnz = result.indptr[matrix1.n_rows];
-    result.indices.resize(total_nnz);
-    result.data.resize(total_nnz);
-    
-    #pragma omp parallel for
-    for (int i = 0; i < matrix1.n_rows; i++) {
-        int start = result.indptr[i];
-        int idx = 0;
-        
-        std::vector<std::pair<int, float>> row_data;
-        row_data.reserve(temp_rows[i].size());
-        for (const auto& pair : temp_rows[i]) {
-            if (pair.second != 0.0f) {
-                row_data.emplace_back(pair.first, pair.second);
-            }
-        }
-        std::sort(row_data.begin(), row_data.end());
-        
-        for (const auto& pair : row_data) {
-            result.indices[start + idx] = pair.first;
-            result.data[start + idx] = pair.second;
-            idx++;
-        }
-    }
-    
-    return result;
-}
-
-// Returns a sparse matrix of the kinship coefficients.
-std::tuple<std::vector<int>, std::vector<int>, std::vector<float>>
-compute_sparse_kinships(Pedigree<> &pedigree,
-    std::vector<int> proband_ids, bool verbose) {
-    
-    // Get the proband IDs if they are not provided
-    if (proband_ids.empty()) {
-        proband_ids = get_proband_ids(pedigree);
-    }
-    
-    // Handle edge cases
-    if (proband_ids.empty()) {
-        return {{}, {0}, {}};
-    }
-    
-    if (proband_ids.size() == 1) {
-        return {{0}, {0, 1}, {0.5f}};
-    }
-    
-    // Convert the pedigree to a kinship pedigree
-    Pedigree<Index> kinship_pedigree(pedigree);
-    
-    // Cut the vertices
-    std::vector<std::vector<int>> vertex_cuts = cut_vertices(pedigree, proband_ids);
-    
-    // Initialize founder matrix as hashmap
-    phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>> founder_matrix;
-    
-    // Initialize founders with self-kinship of 0.5
-    if (!vertex_cuts.empty()) {
-        for (int i = 0; i < static_cast<int>(vertex_cuts[0].size()); i++) {
-            founder_matrix[i][i] = 0.5f;
-        }
-    }
-    
-    if (verbose) {
-        int count = 0;
-        for (const std::vector<int>& vertex_cut : vertex_cuts) {
-            printf("Cut size %d/%d: %d\n",
-                ++count, static_cast<int>(vertex_cuts.size()), static_cast<int>(vertex_cut.size()));
-        }
-        printf("Computing the sparse kinship matrix:\n");
-    }
-    
-    int cut_count = 0;
-    
-    // Go from the top to the bottom of the pedigree
-    for (int i = 0; i < static_cast<int>(vertex_cuts.size()) - 1; i++) {
-        if (verbose) {
-            printf("Cut %d out of %d\n", ++cut_count, static_cast<int>(vertex_cuts.size()));
-        }
-        
-        // Index the founders
-        int founder_index = 0;
-        for (const int id : vertex_cuts[i]) {
-            Individual<Index> *individual = kinship_pedigree.individuals.at(id);
-            individual->data.index = founder_index++;
-        }
-        
-        // Get probands for this generation
-        std::vector<Individual<Index> *> probands;
-        for (const int id : vertex_cuts[i + 1]) {
-            probands.push_back(kinship_pedigree.individuals.at(id));
-        }
-        
-        // Build CSR matrices for diagonal and off-diagonal elements
-        CSRMatrix diagonal_matrix(static_cast<int>(probands.size()), static_cast<int>(probands.size()));
-        CSRMatrix offdiagonal_matrix(static_cast<int>(probands.size()), static_cast<int>(probands.size()));
-        
-        // Compute kinships
-        sparse_compute_kinship_with_oneself(probands, founder_matrix, diagonal_matrix);
-        sparse_compute_kinship_between_probands(probands, founder_matrix, offdiagonal_matrix);
-        
-        // Merge diagonal and off-diagonal matrices
-        CSRMatrix proband_matrix = merge_csr_matrices(diagonal_matrix, offdiagonal_matrix);
-        
-        // If this is the last generation, return the CSR matrix directly
-        if (i == static_cast<int>(vertex_cuts.size()) - 2) {
-            if (verbose) {
-                printf("Returning final CSR matrix directly\n");
-            }
-            return {std::move(proband_matrix.indices), 
-                    std::move(proband_matrix.indptr), 
-                    std::move(proband_matrix.data)};
-        }
-        
-        // Otherwise, convert CSR proband_matrix to hashmap founder_matrix for next iteration
-        founder_matrix = csr_to_hashmap(proband_matrix);
-    }
-    
-    // This should never be reached, but handle empty case
-    return {{}, {0}, {}};
 }
 
 // Returns the mean kinship coefficient of a kinship matrix.
