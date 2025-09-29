@@ -32,9 +32,12 @@ SOFTWARE.
 #include <cstdint>
 #include <limits>
 #include <parallel_hashmap/phmap.h>
+#include <Eigen/Sparse>
 #include "identify.hpp"
 #include "extract.hpp"
 #include "matrix.hpp"
+
+using SparseMatrix = Eigen::SparseMatrix<float, Eigen::ColMajor, int>;
 
 // Returns the previous generation of a set of individuals.
 std::vector<int> get_previous_generation(Pedigree<> &pedigree,
@@ -93,8 +96,7 @@ Matrix<double> compute_kinships(
 
 // Returns a sparse matrix of the kinship coefficients.
 // Adapted from the algorithm from Kirkpatrick et al.
-std::tuple<std::vector<int>, std::vector<int>, std::vector<float>>
-compute_sparse_kinships(Pedigree<> &pedigree,
+SparseMatrix compute_sparse_kinships(Pedigree<> &pedigree,
     std::vector<int> proband_ids = {}, bool verbose = false);
 
 // Returns the mean kinship coefficient of a kinship matrix.

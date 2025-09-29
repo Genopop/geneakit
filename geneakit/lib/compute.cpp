@@ -360,8 +360,7 @@ Matrix<double> compute_kinships(Pedigree<> &pedigree,
 // Returns a sparse matrix of the kinship coefficients.
 // Adapted from the algorithm from Kirkpatrick et al.
 // Inspired by the implementation from lineagekit by Serdiuk Andrii et al.
-std::tuple<std::vector<int>, std::vector<int>, std::vector<float>>
-compute_sparse_kinships(Pedigree<> &pedigree,
+SparseMatrix compute_sparse_kinships(Pedigree<> &pedigree,
     std::vector<int> proband_ids, bool verbose) {
     // Initialize the sparse kinship matrix
     phmap::flat_hash_map<int, phmap::flat_hash_map<int, float>> kinship_matrix;
@@ -494,7 +493,8 @@ compute_sparse_kinships(Pedigree<> &pedigree,
         }
         indptr.push_back(indices.size());
     }
-    return {indices, indptr, data};
+    return Eigen::Map<SparseMatrix>(proband_ids.size(), proband_ids.size(),
+        data.size(), indptr.data(), indices.data(), data.data());
 }
 
 // Returns the mean kinship coefficient of a kinship matrix.

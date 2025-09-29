@@ -51,10 +51,7 @@ def phi(gen, **kwargs):
     if verbose: begin = time.time()
         
     if sparse:
-        indices, indptr, data = cgeneakit.compute_sparse_kinships(gen, pro, verbose)
-        kinship_matrix = csc_matrix((data, indices, indptr),
-                                    shape=(len(pro), len(pro)),
-                                    dtype=np.float32)
+        kinship_matrix = cgeneakit.compute_sparse_kinships(gen, pro, verbose)
     else:
         cmatrix = cgeneakit.compute_kinships(gen, pro, verbose)
         kinship_matrix = pd.DataFrame(cmatrix, index=pro, columns=pro, copy=False)
