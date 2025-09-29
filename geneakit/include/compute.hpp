@@ -1,6 +1,9 @@
 #ifndef COMPUTE_H
 #define COMPUTE_H
 
+#include <nanobind/nanobind.h>
+#include <nanobind/eigen/sparse.h>
+
 /*------------------------------------------------------------------------------
 MIT License
 
@@ -36,6 +39,8 @@ SOFTWARE.
 #include "identify.hpp"
 #include "extract.hpp"
 #include "matrix.hpp"
+
+namespace nb = nanobind;
 
 using SparseMatrix = Eigen::SparseMatrix<float, Eigen::ColMajor, int>;
 

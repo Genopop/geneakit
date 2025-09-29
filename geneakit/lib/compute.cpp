@@ -467,7 +467,7 @@ SparseMatrix compute_sparse_kinships(Pedigree<> &pedigree,
     }
     if (verbose) printf("Conversion to sparse matrix...\n");
     std::vector<int> indices, indptr(1, 0); std::vector<float> data;
-    for (i = 0; i < proband_ids.size(); i++) {
+    for (int i = 0; i < (int) proband_ids.size(); i++) {
         int id1 = proband_ids[i];
         Individual<Remainder> *individual1 =
             kinship_pedigree.individuals.at(id1);
@@ -493,8 +493,14 @@ SparseMatrix compute_sparse_kinships(Pedigree<> &pedigree,
         }
         indptr.push_back(indices.size());
     }
-    return Eigen::Map<SparseMatrix>(proband_ids.size(), proband_ids.size(),
-        data.size(), indptr.data(), indices.data(), data.data());
+    return nb::DMap<SparseMatrix>(
+        proband_ids.size(),
+        proband_ids.size(),
+        data.size(),
+        indptr.data(),
+        indices.data(),
+        data.data()
+    );
 }
 
 // Returns the mean kinship coefficient of a kinship matrix.
