@@ -1,11 +1,140 @@
 import numpy as np
 import pandas as pd
-from scipy.sparse import csc_matrix
+from scipy.sparse import lil_matrix
+from numba import jit
 from scipy.stats import bootstrap
-from scipy.stats import norm
 import cgeneakit
 import time
 
+def A(gen, **kwargs):
+    """Compute additive genetic relationship matrix using optimized Colleau's method
+    
+    Efficiently computes A = (I - T)^(-1) D (I - T')^(-1) without forming full matrix.
+    Reference: Colleau (2002)
+    
+    Args:
+        gen (cgeneakit.Pedigree): Initialized genealogy object
+        pro (list, optional): Proband IDs to include (default: all)
+        sparse (bool, optional): Return sparse matrix if True (default: False)
+        verbose (bool, optional): Print timing info if True (default: False)
+        
+    Returns:
+        pd.DataFrame or scipy.sparse.csc_matrix: Additive relationship matrix
+    """
+    
+    # Get probands
+    pro = kwargs.get('pro', None)
+    if pro is None:
+        pro = cgeneakit.get_proband_ids(gen)
+    sparse = kwargs.get('sparse', False)
+    verbose = kwargs.get('verbose', False)
+    if verbose: begin = time.time()
+    
+    # Get all individuals and create mapping
+    all_ids = list(gen.keys())
+    n = len(all_ids)
+    id_to_idx = {id_val: idx for idx, id_val in enumerate(all_ids)}
+    
+    # Get proband indices
+    pro_idx = np.array([id_to_idx[p] for p in pro if p in id_to_idx], dtype=np.int32)
+    n_pro = len(pro_idx)
+    
+    # Build parent indices
+    ped = cgeneakit.output_pedigree(gen)
+    sire = np.full(n, -1, dtype=np.int32)
+    dam = np.full(n, -1, dtype=np.int32)
+    
+    for i in range(n):
+        if ped[i,1] > 0 and ped[i,1] in id_to_idx:
+            sire[i] = id_to_idx[ped[i,1]]
+        if ped[i,2] > 0 and ped[i,2] in id_to_idx:
+            dam[i] = id_to_idx[ped[i,2]]
+    
+    # Get inbreeding coefficients
+    F = np.array(cgeneakit.compute_inbreedings(gen, all_ids), dtype=np.float64)
+    
+    # Compute D vector using vectorized operations
+    D = np.ones(n, dtype=np.float64)
+    
+    # Vectorized computation of D
+    has_both = (sire >= 0) & (dam >= 0)
+    has_sire_only = (sire >= 0) & (dam < 0)  
+    has_dam_only = (dam >= 0) & (sire < 0)
+    
+    # Use advanced indexing to avoid intermediate arrays
+    if np.any(has_both):
+        D[has_both] = 0.5 - 0.25 * (F[sire[has_both]] + F[dam[has_both]])
+    if np.any(has_sire_only):
+        D[has_sire_only] = 0.75 - 0.25 * F[sire[has_sire_only]]
+    if np.any(has_dam_only):
+        D[has_dam_only] = 0.75 - 0.25 * F[dam[has_dam_only]]
+    
+    # JIT-compiled core computation functions
+    @jit(nopython=True)
+    def backward_solve(z, sire, dam, n):
+        """Solve (I - T')z = e_j using backward substitution"""
+        for i in range(n-1, -1, -1):
+            if z[i] == 0.0:
+                continue
+            z_half = 0.5 * z[i]
+            if sire[i] >= 0:
+                z[sire[i]] += z_half
+            if dam[i] >= 0:
+                z[dam[i]] += z_half
+        return z
+    
+    @jit(nopython=True)
+    def forward_solve(y, sire, dam, n):
+        """Solve (I - T)y = w using forward substitution"""
+        for i in range(n):
+            parent_sum = 0.0
+            if sire[i] >= 0:
+                parent_sum += y[sire[i]]
+            if dam[i] >= 0:
+                parent_sum += y[dam[i]]
+            y[i] += 0.5 * parent_sum
+        return y
+    
+    # Pre-allocate result matrix
+    if sparse:
+        A_sparse = lil_matrix((n_pro, n_pro), dtype=np.float64)
+    else:
+        A_matrix = np.zeros((n_pro, n_pro), dtype=np.float64)
+    
+    # Work arrays
+    z = np.zeros(n, dtype=np.float64)
+    y = np.zeros(n, dtype=np.float64)
+    
+    # Process each proband column
+    for j_idx, j in enumerate(pro_idx):
+        # Initialize unit vector
+        z.fill(0.0)
+        z[j] = 1.0
+        
+        # Step 1: Backward substitution
+        z = backward_solve(z, sire, dam, n)
+        
+        # Step 2 & 3: Apply D and forward substitution
+        np.multiply(D, z, out=y)
+        y = forward_solve(y, sire, dam, n)
+        
+        # Store results
+        if sparse:
+            for i_idx, i in enumerate(pro_idx):
+                val = y[i]
+                if abs(val) > 1e-10:
+                    A_sparse[i_idx, j_idx] = val
+        else:
+            A_matrix[:, j_idx] = y[pro_idx]
+    
+    if verbose:
+        print(f"Time: {time.time()-begin:.2f}s")
+    
+    if sparse:
+        return A_sparse.tocsc()
+    else:
+        return pd.DataFrame(A_matrix, index=pro, columns=pro)
+        
 def phi(gen, **kwargs):
     """Compute kinship coefficients between probands
     

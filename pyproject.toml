@@ -9,4 +9,4 @@ description = "A set of functions for pedigree analysis, based on the functional
 authors = [
     { name = "Gilles-Philippe Morin" }
 ]
-dependencies = ["numpy", "pandas", "scipy"]
+dependencies = ["numpy", "pandas", "scipy", "numba"]
