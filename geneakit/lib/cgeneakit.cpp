@@ -308,9 +308,6 @@ NB_MODULE(cgeneakit, m) {
         nb::rv_policy::take_ownership,
         "Returns the kinship matrix of a pedigree.");
 
-    m.def("compute_sparse_kinships", &compute_sparse_kinships,
-        "Returns a sparse matrix of the kinship coefficients.");
-
     m.def("compute_inbreedings", &compute_inbreedings,
         "Returns the inbreeding coefficients of probands.");
     

@@ -1,9 +1,6 @@
 #ifndef COMPUTE_H
 #define COMPUTE_H
 
-#include <nanobind/nanobind.h>
-#include <nanobind/eigen/sparse.h>
-
 /*------------------------------------------------------------------------------
 MIT License
 
@@ -35,14 +32,9 @@ SOFTWARE.
 #include <cstdint>
 #include <limits>
 #include <parallel_hashmap/phmap.h>
-#include <Eigen/Sparse>
 #include "identify.hpp"
 #include "extract.hpp"
 #include "matrix.hpp"
-
-namespace nb = nanobind;
-
-using SparseMatrix = Eigen::SparseMatrix<float, Eigen::ColMajor, int>;
 
 // Returns the previous generation of a set of individuals.
 std::vector<int> get_previous_generation(Pedigree<> &pedigree,
@@ -98,11 +90,6 @@ double get_required_memory_for_kinships(
 Matrix<double> compute_kinships(
     Pedigree<> &pedigree, std::vector<int> proband_ids = {},
     bool verbose = false);
-
-// Returns a sparse matrix of the kinship coefficients.
-// Adapted from the algorithm from Kirkpatrick et al.
-SparseMatrix compute_sparse_kinships(Pedigree<> &pedigree,
-    std::vector<int> proband_ids = {}, bool verbose = false);
 
 // Returns the mean kinship coefficient of a kinship matrix.
 double compute_mean_kinship(Matrix<double> &kinship_matrix);

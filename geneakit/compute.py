@@ -319,7 +319,7 @@ def phi(gen, **kwargs):
     if verbose: begin = time.time()
         
     if sparse:
-        kinship_matrix = cgeneakit.compute_sparse_kinships(gen, pro, verbose)
+        kinship_matrix = A(gen, pro=pro, sparse=True, verbose=verbose) / 2
     else:
         cmatrix = cgeneakit.compute_kinships(gen, pro, verbose)
         kinship_matrix = pd.DataFrame(cmatrix, index=pro, columns=pro, copy=False)
