@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy.sparse import csc_matrix
+from scipy.stats import bootstrap
 from numba import njit, prange
 import cgeneakit
 import time
