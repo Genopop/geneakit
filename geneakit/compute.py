@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from scipy.sparse import lil_matrix
+from scipy.sparse import lil_matrix, csc_matrix
 from numba import jit
 from scipy.stats import bootstrap
 import cgeneakit
