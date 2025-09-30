@@ -1,34 +1,195 @@
 import numpy as np
 import pandas as pd
-from scipy.sparse import lil_matrix, csc_matrix
-from numba import jit
-from scipy.stats import bootstrap
+from scipy.sparse import csc_matrix
+from numba import njit, prange
 import cgeneakit
 import time
 
-def A(gen, **kwargs):
-    """Compute additive genetic relationship matrix using optimized Colleau's method
+# Maximally JIT-compiled helper functions
+@njit(parallel=False, cache=True, fastmath=True)
+def compute_D_vector(n, sire, dam, F):
+    """Fully JIT-compiled D vector computation"""
+    D = np.ones(n, dtype=np.float64)
     
-    Efficiently computes A = (I - T)^(-1) D (I - T')^(-1) without forming full matrix.
-    Reference: Colleau (2002)
+    for i in prange(n):
+        if sire[i] >= 0 and dam[i] >= 0:
+            # Both parents known
+            D[i] = 0.5 - 0.25 * (F[sire[i]] + F[dam[i]])
+        elif sire[i] >= 0 and dam[i] < 0:
+            # Only sire known
+            D[i] = 0.75 - 0.25 * F[sire[i]]
+        elif dam[i] >= 0 and sire[i] < 0:
+            # Only dam known
+            D[i] = 0.75 - 0.25 * F[dam[i]]
+        # else: D[i] remains 1.0 (no parents)
+    
+    return D
+
+@njit(cache=True, fastmath=True)
+def backward_solve_optimized(z, sire, dam, n):
+    """Optimized backward substitution with better memory access pattern"""
+    # Process in reverse order for (I - T')z = e_j
+    for i in range(n-1, -1, -1):
+        if z[i] != 0.0:
+            z_half = 0.5 * z[i]
+            if sire[i] >= 0:
+                z[sire[i]] += z_half
+            if dam[i] >= 0:
+                z[dam[i]] += z_half
+    return z
+
+@njit(cache=True, fastmath=True)
+def forward_solve_optimized(y, sire, dam, n):
+    """Optimized forward substitution with better memory access pattern"""
+    # Process in forward order for (I - T)y = w
+    for i in range(n):
+        parent_contrib = 0.0
+        if sire[i] >= 0:
+            parent_contrib += y[sire[i]]
+        if dam[i] >= 0:
+            parent_contrib += y[dam[i]]
+        if parent_contrib != 0.0:
+            y[i] += 0.5 * parent_contrib
+    return y
+
+@njit(cache=True, fastmath=True)
+def compute_column_dense(j, n, sire, dam, D, pro_idx):
+    """Compute a single column of A matrix - fully JIT compiled"""
+    # Initialize work arrays
+    z = np.zeros(n, dtype=np.float64)
+    y = np.zeros(n, dtype=np.float64)
+    
+    # Set unit vector
+    z[j] = 1.0
+    
+    # Step 1: Backward substitution
+    z = backward_solve_optimized(z, sire, dam, n)
+    
+    # Step 2: Apply D
+    for i in range(n):
+        y[i] = D[i] * z[i]
+    
+    # Step 3: Forward substitution
+    y = forward_solve_optimized(y, sire, dam, n)
+    
+    # Extract values for probands only
+    n_pro = len(pro_idx)
+    result = np.zeros(n_pro, dtype=np.float64)
+    for i in range(n_pro):
+        result[i] = y[pro_idx[i]]
+    
+    return result
+
+@njit(parallel=True, cache=True, fastmath=True)
+def compute_A_matrix_parallel(n, n_pro, sire, dam, D, pro_idx):
+    """Fully JIT-compiled parallel computation of entire A matrix"""
+    A_matrix = np.zeros((n_pro, n_pro), dtype=np.float64)
+    
+    # Process columns in parallel
+    for j_idx in prange(n_pro):
+        j = pro_idx[j_idx]
+        
+        # Compute column j
+        col_values = compute_column_dense(j, n, sire, dam, D, pro_idx)
+        
+        # Store in matrix
+        for i_idx in range(n_pro):
+            A_matrix[i_idx, j_idx] = col_values[i_idx]
+    
+    return A_matrix
+
+@njit(cache=True)
+def compute_A_matrix_sequential(n, n_pro, sire, dam, D, pro_idx):
+    """Sequential version for comparison or when parallel isn't beneficial"""
+    A_matrix = np.zeros((n_pro, n_pro), dtype=np.float64)
+    
+    for j_idx in range(n_pro):
+        j = pro_idx[j_idx]
+        col_values = compute_column_dense(j, n, sire, dam, D, pro_idx)
+        A_matrix[:, j_idx] = col_values
+    
+    return A_matrix
+
+@njit(cache=True)
+def compute_sparse_entries(n, n_pro, sire, dam, D, pro_idx, threshold=1e-10):
+    """Compute sparse matrix entries - fully JIT compiled"""
+    # Pre-allocate lists for COO format
+    max_entries = n_pro * n_pro  # Maximum possible
+    row_indices = np.zeros(max_entries, dtype=np.int32)
+    col_indices = np.zeros(max_entries, dtype=np.int32)
+    values = np.zeros(max_entries, dtype=np.float64)
+    entry_count = 0
+    
+    for j_idx in range(n_pro):
+        j = pro_idx[j_idx]
+        col_values = compute_column_dense(j, n, sire, dam, D, pro_idx)
+        
+        for i_idx in range(n_pro):
+            val = col_values[i_idx]
+            if abs(val) > threshold:
+                row_indices[entry_count] = i_idx
+                col_indices[entry_count] = j_idx
+                values[entry_count] = val
+                entry_count += 1
+    
+    # Return only used portion
+    return (row_indices[:entry_count], 
+            col_indices[:entry_count], 
+            values[:entry_count])
+
+# Additional optimization: Batch processing for very large pedigrees
+@njit(parallel=True, cache=True)
+def compute_A_matrix_blocked(n, n_pro, sire, dam, D, pro_idx, block_size=64):
+    """Block-wise computation for better cache utilization"""
+    A_matrix = np.zeros((n_pro, n_pro), dtype=np.float64)
+    
+    # Process in blocks for better cache locality
+    n_blocks = (n_pro + block_size - 1) // block_size
+    
+    for block_j in prange(n_blocks):
+        j_start = block_j * block_size
+        j_end = min(j_start + block_size, n_pro)
+        
+        for j_idx in range(j_start, j_end):
+            j = pro_idx[j_idx]
+            col_values = compute_column_dense(j, n, sire, dam, D, pro_idx)
+            
+            # Store results
+            for i_idx in range(n_pro):
+                A_matrix[i_idx, j_idx] = col_values[i_idx]
+    
+    return A_matrix
+
+def A(gen, **kwargs):
+    """Compute additive genetic relationship matrix using maximally JIT-optimized Colleau's method
+    
+    This version maximizes JIT compilation for optimal performance.
+    All core computations are JIT-compiled with Numba.
     
     Args:
         gen (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs to include (default: all)
         sparse (bool, optional): Return sparse matrix if True (default: False)
         verbose (bool, optional): Print timing info if True (default: False)
+        parallel (bool, optional): Use parallel computation if True (default: True)
+        block_size (int, optional): Block size for cache optimization (default: 64)
         
     Returns:
         pd.DataFrame or scipy.sparse.csc_matrix: Additive relationship matrix
     """
     
-    # Get probands
+    # Get parameters
     pro = kwargs.get('pro', None)
     if pro is None:
         pro = cgeneakit.get_proband_ids(gen)
     sparse = kwargs.get('sparse', False)
     verbose = kwargs.get('verbose', False)
-    if verbose: begin = time.time()
+    parallel = kwargs.get('parallel', True)
+    block_size = kwargs.get('block_size', 64)
+    
+    if verbose: 
+        begin = time.time()
+        print(f"Computing A matrix for {len(pro)} probands...")
     
     # Get all individuals and create mapping
     all_ids = list(gen.keys())
@@ -39,11 +200,15 @@ def A(gen, **kwargs):
     pro_idx = np.array([id_to_idx[p] for p in pro if p in id_to_idx], dtype=np.int32)
     n_pro = len(pro_idx)
     
-    # Build parent indices
+    if verbose:
+        print(f"Total individuals: {n}, Probands: {n_pro}")
+    
+    # Build parent indices - optimized with NumPy
     ped = cgeneakit.output_pedigree(gen)
     sire = np.full(n, -1, dtype=np.int32)
     dam = np.full(n, -1, dtype=np.int32)
     
+    # Vectorized parent index assignment
     for i in range(n):
         if ped[i,1] > 0 and ped[i,1] in id_to_idx:
             sire[i] = id_to_idx[ped[i,1]]
@@ -53,87 +218,58 @@ def A(gen, **kwargs):
     # Get inbreeding coefficients
     F = np.array(cgeneakit.compute_inbreedings(gen, all_ids), dtype=np.float64)
     
-    # Compute D vector using vectorized operations
-    D = np.ones(n, dtype=np.float64)
+    # Compute D vector using JIT-compiled function
+    if verbose:
+        d_start = time.time()
+    D = compute_D_vector(n, sire, dam, F)
+    if verbose:
+        print(f"D vector computed in {time.time()-d_start:.3f}s")
     
-    # Vectorized computation of D
-    has_both = (sire >= 0) & (dam >= 0)
-    has_sire_only = (sire >= 0) & (dam < 0)  
-    has_dam_only = (dam >= 0) & (sire < 0)
+    # Compute A matrix
+    if verbose:
+        matrix_start = time.time()
     
-    # Use advanced indexing to avoid intermediate arrays
-    if np.any(has_both):
-        D[has_both] = 0.5 - 0.25 * (F[sire[has_both]] + F[dam[has_both]])
-    if np.any(has_sire_only):
-        D[has_sire_only] = 0.75 - 0.25 * F[sire[has_sire_only]]
-    if np.any(has_dam_only):
-        D[has_dam_only] = 0.75 - 0.25 * F[dam[has_dam_only]]
-    
-    # JIT-compiled core computation functions
-    @jit(nopython=True)
-    def backward_solve(z, sire, dam, n):
-        """Solve (I - T')z = e_j using backward substitution"""
-        for i in range(n-1, -1, -1):
-            if z[i] == 0.0:
-                continue
-            z_half = 0.5 * z[i]
-            if sire[i] >= 0:
-                z[sire[i]] += z_half
-            if dam[i] >= 0:
-                z[dam[i]] += z_half
-        return z
-    
-    @jit(nopython=True)
-    def forward_solve(y, sire, dam, n):
-        """Solve (I - T)y = w using forward substitution"""
-        for i in range(n):
-            parent_sum = 0.0
-            if sire[i] >= 0:
-                parent_sum += y[sire[i]]
-            if dam[i] >= 0:
-                parent_sum += y[dam[i]]
-            y[i] += 0.5 * parent_sum
-        return y
-    
-    # Pre-allocate result matrix
     if sparse:
-        A_sparse = lil_matrix((n_pro, n_pro), dtype=np.float64)
+        # Compute sparse entries
+        row_idx, col_idx, values = compute_sparse_entries(
+            n, n_pro, sire, dam, D, pro_idx
+        )
+        
+        # Create sparse matrix
+        from scipy.sparse import coo_matrix
+        A_sparse = coo_matrix(
+            (values, (row_idx, col_idx)),
+            shape=(n_pro, n_pro),
+            dtype=np.float64
+        )
+        result = A_sparse.tocsc()
+        
     else:
-        A_matrix = np.zeros((n_pro, n_pro), dtype=np.float64)
-    
-    # Work arrays
-    z = np.zeros(n, dtype=np.float64)
-    y = np.zeros(n, dtype=np.float64)
-    
-    # Process each proband column
-    for j_idx, j in enumerate(pro_idx):
-        # Initialize unit vector
-        z.fill(0.0)
-        z[j] = 1.0
-        
-        # Step 1: Backward substitution
-        z = backward_solve(z, sire, dam, n)
-        
-        # Step 2 & 3: Apply D and forward substitution
-        np.multiply(D, z, out=y)
-        y = forward_solve(y, sire, dam, n)
-        
-        # Store results
-        if sparse:
-            for i_idx, i in enumerate(pro_idx):
-                val = y[i]
-                if abs(val) > 1e-10:
-                    A_sparse[i_idx, j_idx] = val
+        # Choose computation strategy based on size and settings
+        if n_pro < 100:
+            # Small matrices: sequential is often faster
+            A_matrix = compute_A_matrix_sequential(n, n_pro, sire, dam, D, pro_idx)
+        elif parallel and n_pro > 500:
+            # Large matrices with parallel enabled: use blocked parallel
+            A_matrix = compute_A_matrix_blocked(
+                n, n_pro, sire, dam, D, pro_idx, block_size
+            )
+        elif parallel:
+            # Medium matrices with parallel: use simple parallel
+            A_matrix = compute_A_matrix_parallel(n, n_pro, sire, dam, D, pro_idx)
         else:
-            A_matrix[:, j_idx] = y[pro_idx]
+            # Parallel disabled: use sequential
+            A_matrix = compute_A_matrix_sequential(n, n_pro, sire, dam, D, pro_idx)
+        
+        result = pd.DataFrame(A_matrix, index=pro, columns=pro)
     
     if verbose:
-        print(f"Time: {time.time()-begin:.2f}s")
+        matrix_time = time.time() - matrix_start
+        total_time = time.time() - begin
+        print(f"Matrix computation: {matrix_time:.3f}s")
+        print(f"Total time: {total_time:.3f}s")
     
-    if sparse:
-        return A_sparse.tocsc()
-    else:
-        return pd.DataFrame(A_matrix, index=pro, columns=pro)
+    return result
         
 def phi(gen, **kwargs):
     """Compute kinship coefficients between probands
