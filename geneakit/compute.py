@@ -111,13 +111,21 @@ def compute_A_matrix_sequential(n, n_pro, sire, dam, D, pro_idx):
     return A_matrix
 
 @njit(cache=True)
-def compute_sparse_entries(n, n_pro, sire, dam, D, pro_idx, threshold=1e-10):
+def compute_sparse_entries(n, n_pro, sire, dam, D, pro_idx):
     """Compute sparse matrix entries - fully JIT compiled"""
-    # Pre-allocate lists for COO format
-    max_entries = n_pro * n_pro  # Maximum possible
-    row_indices = np.zeros(max_entries, dtype=np.int32)
-    col_indices = np.zeros(max_entries, dtype=np.int32)
-    values = np.zeros(max_entries, dtype=np.float64)
+    nnzero = 0
+    # First pass to count non-zero entries
+    for j_idx in range(n_pro):
+        j = pro_idx[j_idx]
+        col_values = compute_column_dense(j, n, sire, dam, D, pro_idx)
+        for i_idx in range(n_pro):
+            if col_values[i_idx] > 0.0:
+                nnzero += 1
+    
+    # Pre-allocate lists for CSC format
+    data = np.zeros(nnzero, dtype=np.float64)
+    indices = np.zeros(nnzero, dtype=np.int32)
+    indptr = np.zeros(n_pro+1, dtype=np.int32)
     entry_count = 0
     
     for j_idx in range(n_pro):
@@ -126,16 +134,15 @@ def compute_sparse_entries(n, n_pro, sire, dam, D, pro_idx, threshold=1e-10):
         
         for i_idx in range(n_pro):
             val = col_values[i_idx]
-            if abs(val) > threshold:
-                row_indices[entry_count] = i_idx
-                col_indices[entry_count] = j_idx
-                values[entry_count] = val
+            if val > 0.0:
+                indices[entry_count] = i_idx
+                data[entry_count] = val
                 entry_count += 1
+
+        indptr[j_idx + 1] = entry_count
     
     # Return only used portion
-    return (row_indices[:entry_count], 
-            col_indices[:entry_count], 
-            values[:entry_count])
+    return (data, indices, indptr)
 
 # Additional optimization: Batch processing for very large pedigrees
 @njit(parallel=True, cache=True)
@@ -231,17 +238,12 @@ def A(gen, **kwargs):
     
     if sparse:
         # Compute sparse entries
-        row_idx, col_idx, values = compute_sparse_entries(
+        data, indices, indptr = compute_sparse_entries(
             n, n_pro, sire, dam, D, pro_idx
         )
         
         # Create sparse matrix
-        from scipy.sparse import coo_matrix
-        A_sparse = coo_matrix(
-            (values, (row_idx, col_idx)),
-            shape=(n_pro, n_pro),
-            dtype=np.float64
-        )
+        A_sparse = csc_matrix((data, indices, indptr), copy=False)
         result = A_sparse.tocsc()
         
     else:
