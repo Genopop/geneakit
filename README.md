@@ -31,7 +31,7 @@ The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GEN
     ```
     Both options install two packages, `geneakit` and `cgeneakit` (used by the former internally), and their dependencies. You will need a compiler that supports C++17.
 
-* If OpenMP is found during installation, the `geneakit.phi()` function will run in parallel, making it the fastest implementation of kinship computation that we know of. If you use macOS, you may need to follow [these instructions](https://www.scivision.dev/cmake-openmp/) to enable OpenMP.
+* If OpenMP is found during installation, the `geneakit.phi()` function will run in parallel. If you use macOS, you may need to follow [these instructions](https://www.scivision.dev/cmake-openmp/) to enable OpenMP.
 
 ## Data
 
