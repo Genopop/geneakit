@@ -23,15 +23,21 @@ The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GEN
 * Compute information about a pedigree, such as the pairwise kinship coefficients of probands and the genetic contributions of ancestors;
 * (Eventually) Simulate information about pedigrees and individuals.
 
+## System Requirements
+
+This software was [tested with Python 3.9+](https://github.com/Genopop/geneakit/actions/workflows/tests.yml) on Linux 5.14.0 x64 (with GCC 12) and Python 3.13.7 on macOS 26.0 ARM64 (with Clang 17.0.0). It was not tested on Windows, but in theory should be compatible with Windows Subsystem for Linux (WSL). Otherwise OpenMP may cause the compilation to fail.
+
 ## Installation
 
-* Clone this repository, `cd` into it, then run `pip install .`. Alternatively, without cloning, run:
+* Clone this repository, `cd` into it, then run `pip install .` while running a virtual Python environment. Alternatively, without cloning, run:
     ```
     pip install https://github.com/Genopop/geneakit/archive/main.zip
     ```
-    Both options install two packages, `geneakit` and `cgeneakit` (used by the former internally), and their dependencies. You will need a compiler that supports C++17.
+    Both options install two packages, `geneakit` and `cgeneakit` (used by the former internally), and their dependencies.
 
 * If OpenMP is found during installation, the `geneakit.phi()` function will run in parallel. If you use macOS, you may need to follow [these instructions](https://www.scivision.dev/cmake-openmp/) to enable OpenMP.
+
+* On a MacBook Air M3, it took about four seconds for the remote `pip install` to complete the installation.
 
 ## Data
 
@@ -82,6 +88,28 @@ mrca = gen.findMRCA(ped, [802424, 868572])
 dist = gen.find_Min_Distance_MRCA(mrca)
 out = gen.genout(ped, sorted=True)
 ```
+
+## Demo
+
+After the virtual Python environment is activated (e.g. with `source venv/bin/activate`), run the following commands.
+
+```python
+from time import time
+import geneakit as gen # Import the package
+from geneakit import genea140 # Locate the sample dataset
+ped = gen.genealogy(genea140) # Load the genealogy
+pro = gen.pro(ped) # Identify the probands
+start = time()
+phi = gen.phi(ped, pro=pro) # Compute all pairwise kinship coefficients between the probands
+mean = gen.phiMean(phi) # Compute the mean kinship coefficient
+end = time()
+print(mean)
+print(f"The computation took {end-start:.3f} seconds.")
+```
+
+The mean kinship coefficient should be 0.0011437357709631094.
+
+On a MacBook Air M3, the computation took about 3 seconds. As a comparison, the equivalent computation in R takes about 3 minutes on the same computer.
 
 ## GENLIB Functions Not Included
 
