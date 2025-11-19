@@ -160,15 +160,7 @@ def compute_diagonal_correction(n_next, parent_pointers, current_self_kinships, 
 
     return new_self_kinships
 
-def prune_matrix(mat, threshold):
-    """In-place pruning of sparse matrix values below threshold."""
-    if threshold > 0 and mat.nnz > 0:
-        # Access the data array directly
-        mat.data[mat.data < threshold] = 0
-        mat.eliminate_zeros()
-    return mat
-
-def compute_kinships_sparse(gen, pro=None, verbose=False, threshold=1e-9):
+def compute_kinships_sparse(gen, pro=None, verbose=False):
     """Sparse kinship matrix computation using matrix multiplication (P K P')."""
 
     if pro is None:
@@ -228,9 +220,6 @@ def compute_kinships_sparse(gen, pro=None, verbose=False, threshold=1e-9):
         # Step A: Intermediate multiplication P * K_prev
         # This produces an N_next x N_curr matrix
         K_temp = P.dot(current_matrix)
-        
-        # Prune the intermediate matrix immediately.
-        prune_matrix(K_temp, threshold)
 
         # Step B: Final multiplication K_temp * P.T
         # This produces an N_next x N_next matrix
@@ -256,9 +245,6 @@ def compute_kinships_sparse(gen, pro=None, verbose=False, threshold=1e-9):
 
         # Update tracking vector
         current_self_kinships = corrected_diagonals
-
-        # Final pruning
-        prune_matrix(K_next_raw, threshold)
 
         # Update current matrix and force garbage collection
         current_matrix = K_next_raw
