@@ -252,7 +252,7 @@ def compute_kinships_sparse(gen, pro=None, verbose=False, threshold=1e-9):
         )
 
         # Overwrite diagonal in-place (no new allocation)
-        K_next_raw += diags(corrected_diagonals - computed_diagonals, format='csr')  
+        K_next_raw = K_next_raw + diags(corrected_diagonals - computed_diagonals, format='csr')  
 
         # Update tracking vector
         current_self_kinships = corrected_diagonals
