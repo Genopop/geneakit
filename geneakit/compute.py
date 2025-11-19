@@ -70,7 +70,7 @@ def cut_vertices(pedigree, proband_ids):
 @njit(cache=True)
 def build_transfer_matrix_jit(n_next, next_cut, prev_map, father_indices, mother_indices):
     """
-    Build COO arrays for the transfer matrix P using float64 to save memory.
+    Build COO arrays for the transfer matrix P.
     """
     est_size = n_next * 2
     rows = np.empty(est_size, dtype=np.int32)
