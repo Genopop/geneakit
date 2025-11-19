@@ -1,12 +1,15 @@
 import gc as gc_
 import time
-
 import cgeneakit
 import numpy as np
 import pandas as pd
-from numba import njit
+from numba import njit, prange
 from scipy.sparse import csr_matrix, csc_matrix
 from scipy.stats import bootstrap
+
+# ---------------------------------------------------------
+# Helper Functions (Graph Traversal)
+# ---------------------------------------------------------
 
 def get_previous_generation(pedigree, ids):
     """Returns the previous generation of a set of individuals."""
@@ -69,235 +72,299 @@ def cut_vertices(pedigree, proband_ids):
     vertex_cuts[-1] = sorted(proband_ids)
     return vertex_cuts
 
-@njit(cache=True)
-def build_transfer_maps(n_next, next_cut, prev_map, father_indices, mother_indices):
-    """
-    Builds the P matrix (rows=next, cols=prev) and P.T matrix (rows=prev, cols=next)
-    in CSR-friendly arrays.
-    """
-    n_prev = len(prev_map)
-    
-    est_size_p = n_next * 2
-    p_rows = np.empty(est_size_p, dtype=np.int32)
-    p_cols = np.empty(est_size_p, dtype=np.int32)
-    p_data = np.empty(est_size_p, dtype=np.float32)
-    
-    parent_pointers = np.full((n_next, 2), -1, dtype=np.int32)
-    count_p = 0
+# ---------------------------------------------------------
+# Numba Optimized Kernels
+# ---------------------------------------------------------
 
+@njit(cache=True)
+def build_maps(n_next, next_cut, prev_map, father_indices, mother_indices):
+    """
+    Constructs two mapping structures:
+    1. up_map: Stores (parent1_idx, parent2_idx) for each individual in next_cut.
+               Indices point to rows in the previous K matrix.
+    2. down_map: A CSR-like structure mapping an index in prev_cut to a list of 
+                 children indices in next_cut.
+    """
+    # UP MAP: n_next x 2
+    # -2 means "is self/copy", -1 means "missing parent", >=0 is index in prev
+    up_map = np.full((n_next, 2), -1, dtype=np.int32)
+    
+    # Prepare for DOWN MAP (CSR construction)
+    # We need counts first
+    n_prev = len(prev_map)
+    down_counts = np.zeros(n_prev, dtype=np.int32)
+    
     for i in range(n_next):
         ind = next_cut[i]
         
+        # Check if individual exists in previous cut (pass-through/copy)
         if ind < len(prev_map) and prev_map[ind] >= 0:
             prev_idx = prev_map[ind]
-            p_rows[count_p] = i
-            p_cols[count_p] = prev_idx
-            p_data[count_p] = 1.0
-            count_p += 1
-            parent_pointers[i, 0] = -2
-            parent_pointers[i, 1] = -2
+            up_map[i, 0] = prev_idx
+            up_map[i, 1] = -2 # Flag for Copy
+            down_counts[prev_idx] += 1
         else:
             f = father_indices[ind]
             m = mother_indices[ind]
             
+            f_idx = -1
             if f >= 0 and f < len(prev_map):
                 f_idx = prev_map[f]
                 if f_idx >= 0:
-                    p_rows[count_p] = i
-                    p_cols[count_p] = f_idx
-                    p_data[count_p] = 0.5
-                    count_p += 1
-                    parent_pointers[i, 0] = f_idx
+                    up_map[i, 0] = f_idx
+                    down_counts[f_idx] += 1
             
+            m_idx = -1
             if m >= 0 and m < len(prev_map):
                 m_idx = prev_map[m]
                 if m_idx >= 0:
-                    p_rows[count_p] = i
-                    p_cols[count_p] = m_idx
-                    p_data[count_p] = 0.5
-                    count_p += 1
-                    parent_pointers[i, 1] = m_idx
-
-    p_indptr = np.zeros(n_next + 1, dtype=np.int32)
-    for k in range(count_p):
-        row = p_rows[k]
-        p_indptr[row + 1] += 1
-    
-    for k in range(n_next):
-        p_indptr[k+1] += p_indptr[k]
-        
-    final_p_indices = np.empty(count_p, dtype=np.int32)
-    final_p_data = np.empty(count_p, dtype=np.float32)
-    
-    final_p_indices[:] = p_cols[:count_p]
-    final_p_data[:] = p_data[:count_p]
-
-    pt_counts = np.zeros(n_prev, dtype=np.int32)
-    for k in range(count_p):
-        col = p_cols[k]
-        pt_counts[col] += 1
-        
-    pt_indptr = np.zeros(n_prev + 1, dtype=np.int32)
+                    up_map[i, 1] = m_idx
+                    down_counts[m_idx] += 1
+                    
+    # Build Down Map CSR
+    down_indptr = np.zeros(n_prev + 1, dtype=np.int32)
     for k in range(n_prev):
-        pt_indptr[k+1] = pt_indptr[k] + pt_counts[k]
+        down_indptr[k+1] = down_indptr[k] + down_counts[k]
         
-    pt_indices = np.empty(count_p, dtype=np.int32)
-    pt_data = np.empty(count_p, dtype=np.float32)
-    
-    current_pt_head = pt_indptr.copy()
-    
-    for k in range(count_p):
-        row = p_rows[k] 
-        col = p_cols[k] 
-        val = p_data[k]
-        
-        dest = current_pt_head[col]
-        pt_indices[dest] = row
-        pt_data[dest] = val
-        current_pt_head[col] += 1
-        
-    return (final_p_indices, p_indptr, final_p_data, 
-            pt_indices, pt_indptr, pt_data, 
-            parent_pointers)
-
-@njit(cache=True)
-def compute_row_spa(
-    row_idx,
-    P_indices, P_indptr, P_data,
-    PT_indices, PT_indptr, PT_data,
-    K_prev_indices, K_prev_indptr, K_prev_data,
-    spa_values, spa_markers, spa_indices, marker_key
-):
-    """
-    Computes a single row of K_next using a Sparse Accumulator.
-    Returns the number of non-zero elements found.
-    """
-    nnz_count = 0
-    
-    p_start = P_indptr[row_idx]
-    p_end = P_indptr[row_idx+1]
-    
-    for p_k in range(p_start, p_end):
-        parent_idx = P_indices[p_k]
-        parent_weight = P_data[p_k]
-        
-        k_start = K_prev_indptr[parent_idx]
-        k_end = K_prev_indptr[parent_idx+1]
-        
-        for k_k in range(k_start, k_end):
-            ancestor_idx = K_prev_indices[k_k]
-            kinship_val = K_prev_data[k_k]
-            
-            val = parent_weight * kinship_val
-            
-            pt_start = PT_indptr[ancestor_idx]
-            pt_end = PT_indptr[ancestor_idx+1]
-            
-            for pt_k in range(pt_start, pt_end):
-                child_idx = PT_indices[pt_k]
-                child_weight = PT_data[pt_k]
-                
-                contribution = val * child_weight
-                
-                if spa_markers[child_idx] != marker_key:
-                    spa_markers[child_idx] = marker_key
-                    spa_values[child_idx] = contribution
-                    spa_indices[nnz_count] = child_idx
-                    nnz_count += 1
-                else:
-                    spa_values[child_idx] += contribution
-
-    return nnz_count
-
-@njit(cache=True)
-def compute_generation_loop(
-    n_next,
-    P_indices, P_indptr, P_data,
-    PT_indices, PT_indptr, PT_data,
-    K_prev_indices, K_prev_indptr, K_prev_data,
-    parent_pointers, current_self_kinships
-):
-    # Heuristic for output size
-    est_nnz = n_next * 100 
-    out_indices = np.empty(est_nnz, dtype=np.int32)
-    out_data = np.empty(est_nnz, dtype=np.float32)
-    out_indptr = np.empty(n_next + 1, dtype=np.int32)
-    out_indptr[0] = 0
-    
-    current_ptr = 0
-    
-    # Sparse Accumulator Structures
-    spa_values = np.zeros(n_next, dtype=np.float32)
-    spa_markers = np.full(n_next, -1, dtype=np.int32)
-    spa_indices = np.empty(n_next, dtype=np.int32)
-    
-    output_diagonals = np.empty(n_next, dtype=np.float32)
+    down_indices = np.empty(down_indptr[-1], dtype=np.int32)
+    # Reuse down_counts as head pointers
+    current_heads = down_indptr[:-1].copy() 
     
     for i in range(n_next):
-        # Compute row using SPA
-        nnz_in_row = compute_row_spa(
-            i, P_indices, P_indptr, P_data, 
-            PT_indices, PT_indptr, PT_data,
-            K_prev_indices, K_prev_indptr, K_prev_data,
-            spa_values, spa_markers, spa_indices, i
-        )
+        p1 = up_map[i, 0]
+        p2 = up_map[i, 1]
         
-        # Check diagonal correction
-        raw_self = 0.0
-        if spa_markers[i] == i:
-            raw_self = spa_values[i]
+        if p2 == -2: # Copy
+            dest = current_heads[p1]
+            down_indices[dest] = i
+            current_heads[p1] += 1
+        else:
+            if p1 >= 0:
+                dest = current_heads[p1]
+                down_indices[dest] = i
+                current_heads[p1] += 1
+            if p2 >= 0:
+                dest = current_heads[p2]
+                down_indices[dest] = i
+                current_heads[p2] += 1
+                    
+    return up_map, down_indices, down_indptr
+
+@njit(parallel=True, cache=True)
+def compute_generation_fused(
+    n_next,
+    up_map,
+    down_indices, down_indptr,
+    K_prev_indices, K_prev_indptr, K_prev_data,
+    current_self_kinships
+):
+    """
+    Computes K_next = P * K_prev * P.T + D entirely in one pass using parallelism.
+    
+    Strategy:
+    For each row 'i' in the next generation:
+      1. Logic Row Merge: Identify parents (p1, p2). Logically merge K_prev[p1] and K_prev[p2].
+         This creates a stream of (ancestor_idx, weight).
+      2. Logic Column Scatter: For each (ancestor_idx, weight), look up the children 
+         of that ancestor in the next generation (using down_map).
+      3. Accumulate contributions into a thread-local dense row (SPA).
+    """
         
-        # Calculate Diagonal Correction
-        f = parent_pointers[i, 0]
-        m = parent_pointers[i, 1]
-        corr_diag = raw_self
+    out_indptr = np.empty(n_next + 1, dtype=np.int32)
+    out_indptr[0] = 0
         
-        if f != -2: # If not copied
+    row_nnzs = np.zeros(n_next, dtype=np.int32)
+    
+    # --- PASS 1: COUNT NNZ ---
+    for i in prange(n_next):
+        # Thread-local SPA markers
+        # We can't allocate array in loop easily without overhead. 
+        # But usually n_next is < 200k, so allocating 1MB per thread is fine.
+        spa_map = np.full(n_next, -1, dtype=np.int32)
+        
+        nnz_count = 0
+        
+        # Identify parents in prev gen
+        p1 = up_map[i, 0]
+        p2 = up_map[i, 1]
+        is_copy = (p2 == -2)
+        
+        # We need to iterate over the UNION of parents' ancestors.
+        # To do this without sorting/merging full arrays, we just iterate both
+        # and use the SPA to deduplicate.
+        
+        # List of parents to process
+        parents_to_scan = np.empty(2, dtype=np.int32)
+        pt_count = 0
+        if p1 >= 0: 
+            parents_to_scan[pt_count] = p1
+            pt_count += 1
+        if not is_copy and p2 >= 0:
+            parents_to_scan[pt_count] = p2
+            pt_count += 1
+            
+        # Logic: Row_i(M) = 0.5*K[p1] + 0.5*K[p2]
+        # Then K_next[i, :] = M[i] * P.T
+        # Meaning: For every ancestor 'k' in parents' ancestry,
+        # add contributions to all children of 'k'.
+        
+        for p_idx_i in range(pt_count):
+            p_row = parents_to_scan[p_idx_i]
+            start = K_prev_indptr[p_row]
+            end = K_prev_indptr[p_row+1]
+            
+            for k_idx in range(start, end):
+                ancestor = K_prev_indices[k_idx]
+                # Ancestor 'ancestor' contributes.
+                # Who are the children of 'ancestor' in the current generation?
+                
+                d_start = down_indptr[ancestor]
+                d_end = down_indptr[ancestor+1]
+                
+                for d_k in range(d_start, d_end):
+                    child = down_indices[d_k]
+                    
+                    if spa_map[child] != i:
+                        spa_map[child] = i
+                        nnz_count += 1
+        
+        # Ensure diagonal is present
+        if spa_map[i] != i:
+            nnz_count += 1
+            
+        row_nnzs[i] = nnz_count
+
+    # Cumulative Sum for Indptr
+    total_nnz = 0
+    for i in range(n_next):
+        out_indptr[i] = total_nnz
+        total_nnz += row_nnzs[i]
+    out_indptr[n_next] = total_nnz
+    
+    out_indices = np.empty(total_nnz, dtype=np.int32)
+    out_data = np.empty(total_nnz, dtype=np.float32)
+    output_diagonals = np.empty(n_next, dtype=np.float32)
+    
+    # --- PASS 2: FILL DATA ---
+    for i in prange(n_next):
+        # Re-allocate SPA. Numba handles allocation efficiently in parallel blocks.
+        spa_values = np.zeros(n_next, dtype=np.float32)
+        spa_map = np.full(n_next, -1, dtype=np.int32)
+        
+        # We need a local buffer to store indices to sort them later
+        local_indices = np.empty(row_nnzs[i], dtype=np.int32)
+        local_ptr = 0
+        
+        p1 = up_map[i, 0]
+        p2 = up_map[i, 1]
+        is_copy = (p2 == -2)
+        
+        # Re-run the logic
+        parents_to_scan = np.empty(2, dtype=np.int32)
+        pt_count = 0
+        if p1 >= 0: 
+            parents_to_scan[pt_count] = p1
+            pt_count += 1
+        if not is_copy and p2 >= 0:
+            parents_to_scan[pt_count] = p2
+            pt_count += 1
+            
+        for p_idx_i in range(pt_count):
+            p_row = parents_to_scan[p_idx_i]
+            
+            # Weight Logic
+            # If i is copy of p1: weight is 1.0 * K[p1]
+            # If i is child: weight is 0.5 * K[p1]
+            scaler = 1.0 if is_copy else 0.5
+            
+            start = K_prev_indptr[p_row]
+            end = K_prev_indptr[p_row+1]
+            
+            for k_idx in range(start, end):
+                ancestor = K_prev_indices[k_idx]
+                kinship_val = K_prev_data[k_idx]
+                
+                val_to_scatter = scaler * kinship_val
+                
+                d_start = down_indptr[ancestor]
+                d_end = down_indptr[ancestor+1]
+                
+                for d_k in range(d_start, d_end):
+                    child = down_indices[d_k]
+                    
+                    # Determine incoming weight to child
+                    # If child is copy of ancestor: weight 1.0
+                    # If child is offspring of ancestor: weight 0.5
+                    # We check child's up_map
+                    c_p1 = up_map[child, 0]
+                    c_p2 = up_map[child, 1]
+                    
+                    child_scaler = 0.0
+                    if c_p2 == -2: # Child is copy
+                         # If child is copy, p1 must be ancestor
+                         if c_p1 == ancestor: child_scaler = 1.0
+                    else:
+                        # Child is offspring
+                        if c_p1 == ancestor: child_scaler += 0.5
+                        if c_p2 == ancestor: child_scaler += 0.5
+                    
+                    contribution = val_to_scatter * child_scaler
+                    
+                    if spa_map[child] != i:
+                        spa_map[child] = i
+                        spa_values[child] = contribution
+                        local_indices[local_ptr] = child
+                        local_ptr += 1
+                    else:
+                        spa_values[child] += contribution
+                        
+        # Diagonal Correction
+        # phi_ii = 0.5 + 0.5 * phi_fm (if not founder/copy)
+        diag_val = 0.0
+        
+        if is_copy:
+            # Just the calculated value (which should match prev gen self)
+            if spa_map[i] == i:
+                diag_val = spa_values[i]
+            else:
+                # Should not happen for valid copy, but safeguard
+                diag_val = 0.5 
+        else:
             phi_pp = 0.0
             phi_mm = 0.0
-            if f >= 0:
-                phi_pp = current_self_kinships[f]
-            if m >= 0:
-                phi_mm = current_self_kinships[m]
-            corr_diag = 0.5 + raw_self - 0.25 * (phi_pp + phi_mm)
-        
-        output_diagonals[i] = corr_diag
-        
-        # Update/Force diagonal in SPA
-        if spa_markers[i] != i:
-            spa_markers[i] = i
-            spa_indices[nnz_in_row] = i
-            nnz_in_row += 1
-        spa_values[i] = corr_diag
-        
-        # Sort indices for canonical CSR format (improves locality for next step)
-        # Only sort the valid portion
-        current_indices_view = spa_indices[:nnz_in_row]
-        current_indices_view.sort()
-        
-        # Harvest results to CSR buffers
-        row_count = 0
-        for k in range(nnz_in_row):
-            col = spa_indices[k]
-            val = spa_values[col]
+            if p1 >= 0: phi_pp = current_self_kinships[p1]
+            if p2 >= 0: phi_mm = current_self_kinships[p2]
             
-            if current_ptr >= len(out_indices):
-                new_size = len(out_indices) * 2
-                new_ind = np.empty(new_size, dtype=np.int32)
-                new_dat = np.empty(new_size, dtype=np.float32)
-                new_ind[:current_ptr] = out_indices[:current_ptr]
-                new_dat[:current_ptr] = out_data[:current_ptr]
-                out_indices = new_ind
-                out_data = new_dat
+            raw_val = 0.0
+            if spa_map[i] == i:
+                raw_val = spa_values[i]
+                
+            # The raw_val accumulated is 0.25*phi_ff + 0.25*phi_mm + 0.5*phi_fm
+            # We want 0.5 + 0.5*phi_fm
+            # So: 0.5 + raw_val - 0.25*phi_ff - 0.25*phi_mm
             
-            out_indices[current_ptr] = col
-            out_data[current_ptr] = val
-            current_ptr += 1
-            row_count += 1
-        
-        out_indptr[i+1] = out_indptr[i] + row_count
+            diag_val = 0.5 + raw_val - 0.25 * (phi_pp + phi_mm)
 
-    return out_data[:current_ptr], out_indices[:current_ptr], out_indptr, output_diagonals
+        output_diagonals[i] = diag_val
+        
+        if spa_map[i] != i:
+            spa_map[i] = i
+            local_indices[local_ptr] = i
+            local_ptr += 1
+        
+        spa_values[i] = diag_val
+        
+        # Sort indices
+        local_indices[:local_ptr].sort()
+        
+        # Write to global arrays
+        global_offset = out_indptr[i]
+        for k in range(local_ptr):
+            col = local_indices[k]
+            out_indices[global_offset + k] = col
+            out_data[global_offset + k] = spa_values[col]
+            
+    return out_indices, out_indptr, out_data, output_diagonals
 
 
 def compute_kinships_sparse(gen, pro=None, verbose=False):
@@ -307,12 +374,16 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
     n_total = len(gen)
     father_indices = np.full(n_total, -1, dtype=np.int32)
     mother_indices = np.full(n_total, -1, dtype=np.int32)
+    
+    # Build lookup arrays once
     for individual in gen.values():
         if individual.father.ind:
             father_indices[individual.rank] = individual.father.rank
         if individual.mother.ind:
             mother_indices[individual.rank] = individual.mother.rank
 
+    # Cut vertices
+    if verbose: print("Computing vertex cuts...")
     raw_vertex_cuts = cut_vertices(gen, pro)
     cuts_mapped = []
     for cut in raw_vertex_cuts:
@@ -322,17 +393,19 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
     if not cuts_mapped:
         return csc_matrix((0, 0), dtype=np.float32)
 
+    # Initialize Founders
     n_founders = len(cuts_mapped[0])
     current_data = np.full(n_founders, 0.5, dtype=np.float32)
     current_indices = np.arange(n_founders, dtype=np.int32)
     current_indptr = np.arange(n_founders + 1, dtype=np.int32)
     current_self_kinships = np.full(n_founders, 0.5, dtype=np.float32)
 
+    # Process generations
     for t in range(len(cuts_mapped) - 1):
         current_cut = cuts_mapped[t]
         next_cut = cuts_mapped[t + 1]
-        n_prev = len(current_cut)
         n_next = len(next_cut)
+        n_prev = len(current_cut)
 
         if verbose:
             print(f"Processing cut {t+1}/{len(cuts_mapped)-1}: {n_prev} -> {n_next} individuals")
@@ -340,30 +413,37 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
         prev_map = np.full(n_total, -1, dtype=np.int32)
         prev_map[current_cut] = np.arange(n_prev, dtype=np.int32)
 
-        (P_ind, P_ptr, P_dat, 
-         PT_ind, PT_ptr, PT_dat, 
-         parent_pointers) = build_transfer_maps(
+        # 1. Build Adjacency Maps
+        up_map, down_indices, down_indptr = build_maps(
             n_next, next_cut, prev_map, father_indices, mother_indices
         )
         
-        next_data, next_indices, next_indptr, next_self = compute_generation_loop(
+        # 2. Compute Next Gen (Fused Parallel)
+        next_indices, next_indptr, next_data, next_self = compute_generation_fused(
             n_next,
-            P_ind, P_ptr, P_dat,
-            PT_ind, PT_ptr, PT_dat,
+            up_map,
+            down_indices, down_indptr,
             current_indices, current_indptr, current_data,
-            parent_pointers, current_self_kinships
+            current_self_kinships
         )
         
+        # Update pointers
         current_data = next_data
         current_indices = next_indices
         current_indptr = next_indptr
         current_self_kinships = next_self
         
-        del P_ind, P_ptr, P_dat, PT_ind, PT_ptr, PT_dat
-        gc_.collect()
+        # GC
+        del up_map, down_indices, down_indptr, next_indices, next_data, next_self
+        if t % 5 == 0:
+            gc_.collect()
 
     return csr_matrix((current_data, current_indices, current_indptr), 
                       shape=(n_next, n_next))
+
+# ---------------------------------------------------------
+# Standard Interfaces (phi, phiMean, etc.)
+# ---------------------------------------------------------
 
 def phi(gen, **kwargs):
     """Compute kinship coefficients between probands
