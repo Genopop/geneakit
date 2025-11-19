@@ -15,12 +15,12 @@ def get_previous_generation(pedigree, ids):
             parent_set.add(individual.father.ind)
         if individual.mother and individual.mother.ind:
             parent_set.add(individual.mother.ind)
-    return sorted(list(parent_set))
+    return sorted(parent_set)
 
 def get_generations(pedigree, proband_ids):
     """Go from the bottom to the top of the pedigree."""
     generations = []
-    generation = list(proband_ids)
+    generation = proband_ids
     while generation:
         generations.append(generation)
         generation = get_previous_generation(pedigree, generation)
@@ -29,11 +29,11 @@ def get_generations(pedigree, proband_ids):
 def copy_bottom_up(generations):
     """Drag the individuals up (bottom-up closure)."""
     bottom_up = []
-    ids = sorted(list(generations[0]))
+    ids = sorted(generations[0])
     bottom_up.append(ids)
     for i in range(len(generations) - 1):
-        next_generation = list(set(bottom_up[i]) | set(generations[i + 1]))
-        bottom_up.append(sorted(next_generation))
+        next_generation = sorted(set(bottom_up[i]) | set(generations[i + 1]))
+        bottom_up.append(next_generation)
     bottom_up.reverse()
     return bottom_up
 
@@ -44,15 +44,15 @@ def copy_top_down(generations):
     ids = sorted(gens_reversed[0])
     top_down.append(ids)
     for i in range(len(gens_reversed) - 1):
-        next_generation = list(set(top_down[i]) | set(gens_reversed[i + 1]))
-        top_down.append(sorted(next_generation))
+        next_generation = sorted(set(top_down[i]) | set(gens_reversed[i + 1]))
+        top_down.append(next_generation)
     return top_down
 
 def intersect_both_directions(bottom_up, top_down):
     """Find the intersection of the two sets (the vertex cuts)."""
     vertex_cuts = []
     for i in range(len(bottom_up)):
-        vertex_cut = sorted(list(np.intersect1d(bottom_up[i], top_down[i])))
+        vertex_cut = sorted(np.intersect1d(bottom_up[i], top_down[i]))
         vertex_cuts.append(vertex_cut)
     return vertex_cuts
 
@@ -60,11 +60,11 @@ def cut_vertices(pedigree, proband_ids):
     """Separate individuals into generations using recursive-cut algorithm."""
     generations = get_generations(pedigree, proband_ids)
     if not generations:
-        return [list(proband_ids)]
+        return [proband_ids]
     bottom_up = copy_bottom_up(generations)
     top_down = copy_top_down(generations)
     vertex_cuts = intersect_both_directions(bottom_up, top_down)
-    vertex_cuts[-1] = sorted(list(proband_ids))
+    vertex_cuts[-1] = sorted(proband_ids)
     return vertex_cuts
 
 @njit(cache=True)
@@ -96,7 +96,7 @@ def build_transfer_matrix_jit(n_next, next_cut, n_total, prev_map, father_indice
         ind = next_cut[i]  # local index (0..n_total-1)
 
         # If this individual is present in previous cut (prev_map gives index >=0)
-        if ind >= 0 and ind < n_total and prev_map[ind] >= 0:
+        if prev_map[ind] >= 0:
             prev_idx = prev_map[ind]
             rows[count] = i
             cols[count] = prev_idx
@@ -111,7 +111,7 @@ def build_transfer_matrix_jit(n_next, next_cut, n_total, prev_map, father_indice
             mother = mother_indices[ind]
 
             # Father contribution
-            if father >= 0 and father < n_total and prev_map[father] >= 0:
+            if father >= 0:
                 father_idx = prev_map[father]
                 rows[count] = i
                 cols[count] = father_idx
@@ -120,7 +120,7 @@ def build_transfer_matrix_jit(n_next, next_cut, n_total, prev_map, father_indice
                 parent_pointers[i, 0] = father_idx
 
             # Mother contribution
-            if mother >= 0 and mother < n_total and prev_map[mother] >= 0:
+            if mother >= 0:
                 mother_idx = prev_map[mother]
                 rows[count] = i
                 cols[count] = mother_idx
@@ -181,14 +181,14 @@ def compute_kinships_sparse(gen, pro=None, verbose=False, threshold=1e-9):
 
     # 1) Global compact reindex: map pedigree IDs -> contiguous 0..n_total-1
     all_ids = list(gen.keys())
-    id_to_idx = {id_val: i for i, id_val in enumerate(all_ids)}
+    id_to_idx = {id: i for i, id in enumerate(all_ids)}
     n_total = len(all_ids)
 
     # 2) Build parent index arrays (local indices into 0..n_total-1)
     father_indices = np.full(n_total, -1, dtype=np.int32)
     mother_indices = np.full(n_total, -1, dtype=np.int32)
-    for i, id_val in enumerate(all_ids):
-        ind = gen[id_val]
+    for i, id in enumerate(all_ids):
+        ind = gen[id]
         if ind.father is not None and ind.father.ind in id_to_idx:
             father_indices[i] = id_to_idx[ind.father.ind]
         if ind.mother is not None and ind.mother.ind in id_to_idx:
@@ -249,8 +249,8 @@ def compute_kinships_sparse(gen, pro=None, verbose=False, threshold=1e-9):
         # Update tracking vector for next iteration
         current_self_kinships = corrected_diagonals
 
-        # Thresholding & symmetrize to maintain numerical symmetry
-        if threshold is not None and threshold > 0:
+        # Thresholding
+        if threshold > 0:
             mask = K_next_raw.data < threshold
             if mask.any():
                 K_next_raw.data[mask] = 0.0
