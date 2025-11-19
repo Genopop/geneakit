@@ -232,7 +232,6 @@ def compute_generation_loop(
     spa_indices = np.empty(n_next, dtype=np.int32)
     
     output_diagonals = np.empty(n_next, dtype=np.float32)
-    threshold = 1e-9
     
     for i in range(n_next):
         # Compute row using SPA
