@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from numba import njit
 from scipy.sparse import csr_matrix, csc_matrix
+from scipy.stats import bootstrap
 
 def get_previous_generation(pedigree, ids):
     """Returns the previous generation of a set of individuals."""
