@@ -3,7 +3,7 @@ import time
 import cgeneakit
 import numpy as np
 import pandas as pd
-from numba import njit, prange
+from numba import njit, prange, get_num_threads, get_thread_id
 from scipy.sparse import csr_matrix, csc_matrix
 from scipy.stats import bootstrap
 
@@ -156,7 +156,8 @@ def compute_generation_fused(
     up_map,
     down_indices, down_indptr,
     K_prev_indices, K_prev_indptr, K_prev_data,
-    current_self_kinships
+    current_self_kinships,
+    scratch_maps, scratch_vals, scratch_cols
 ):
     """
     Computes K_next = P * K_prev * P.T + D entirely in one pass using parallelism.
@@ -177,10 +178,8 @@ def compute_generation_fused(
     
     # --- PASS 1: COUNT NNZ ---
     for i in prange(n_next):
-        # Thread-local SPA markers
-        # We can't allocate array in loop easily without overhead. 
-        # But usually n_next is < 200k, so allocating 1MB per thread is fine.
-        spa_map = np.full(n_next, -1, dtype=np.int32)
+        tid = get_thread_id()
+        spa_map = scratch_maps[tid]
         
         nnz_count = 0
         
@@ -224,6 +223,7 @@ def compute_generation_fused(
                 for d_k in range(d_start, d_end):
                     child = down_indices[d_k]
                     
+                    # Check against 'i' to see if we visited this child for this row
                     if spa_map[child] != i:
                         spa_map[child] = i
                         nnz_count += 1
@@ -241,18 +241,22 @@ def compute_generation_fused(
         total_nnz += row_nnzs[i]
     out_indptr[n_next] = total_nnz
     
+    # RESET SCRATCH MAPS
+    num_threads = len(scratch_maps)
+    for t in prange(num_threads):
+        scratch_maps[t, :].fill(-1)
+
     out_indices = np.empty(total_nnz, dtype=np.int32)
     out_data = np.empty(total_nnz, dtype=np.float32)
     output_diagonals = np.empty(n_next, dtype=np.float32)
     
     # --- PASS 2: FILL DATA ---
     for i in prange(n_next):
-        # Re-allocate SPA. Numba handles allocation efficiently in parallel blocks.
-        spa_values = np.zeros(n_next, dtype=np.float32)
-        spa_map = np.full(n_next, -1, dtype=np.int32)
+        tid = get_thread_id()
+        spa_map = scratch_maps[tid]
+        spa_values = scratch_vals[tid]
+        local_indices = scratch_cols[tid] # Pre-allocated buffer
         
-        # We need a local buffer to store indices to sort them later
-        local_indices = np.empty(row_nnzs[i], dtype=np.int32)
         local_ptr = 0
         
         p1 = up_map[i, 0]
@@ -354,10 +358,10 @@ def compute_generation_fused(
         
         spa_values[i] = diag_val
         
-        # Sort indices
+        # Sort locally
         local_indices[:local_ptr].sort()
         
-        # Write to global arrays
+        # Write global
         global_offset = out_indptr[i]
         for k in range(local_ptr):
             col = local_indices[k]
@@ -399,8 +403,9 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
     current_indices = np.arange(n_founders, dtype=np.int32)
     current_indptr = np.arange(n_founders + 1, dtype=np.int32)
     current_self_kinships = np.full(n_founders, 0.5, dtype=np.float32)
-
-    # Process generations
+    
+    # Allocate Scratch Space for Numba Threads
+    n_threads = get_num_threads()
     for t in range(len(cuts_mapped) - 1):
         current_cut = cuts_mapped[t]
         next_cut = cuts_mapped[t + 1]
@@ -413,28 +418,31 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
         prev_map = np.full(n_total, -1, dtype=np.int32)
         prev_map[current_cut] = np.arange(n_prev, dtype=np.int32)
 
-        # 1. Build Adjacency Maps
         up_map, down_indices, down_indptr = build_maps(
             n_next, next_cut, prev_map, father_indices, mother_indices
         )
         
-        # 2. Compute Next Gen (Fused Parallel)
+        # Allocate scratch buffers for this generation
+        scratch_maps = np.full((n_threads, n_next), -1, dtype=np.int32)
+        scratch_vals = np.zeros((n_threads, n_next), dtype=np.float32)
+        scratch_cols = np.zeros((n_threads, n_next), dtype=np.int32)
+        
         next_indices, next_indptr, next_data, next_self = compute_generation_fused(
             n_next,
             up_map,
             down_indices, down_indptr,
             current_indices, current_indptr, current_data,
-            current_self_kinships
+            current_self_kinships,
+            scratch_maps, scratch_vals, scratch_cols
         )
         
-        # Update pointers
         current_data = next_data
         current_indices = next_indices
         current_indptr = next_indptr
         current_self_kinships = next_self
         
-        # GC
         del up_map, down_indices, down_indptr, next_indices, next_data, next_self
+        del scratch_maps, scratch_vals, scratch_cols
         if t % 5 == 0:
             gc_.collect()
 
