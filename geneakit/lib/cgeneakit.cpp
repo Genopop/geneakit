@@ -38,20 +38,42 @@ NB_MODULE(cgeneakit, m) {
         })
         .def("__len__", &get_number_of_individuals)
         .def("__iter__", [] (Pedigree<> &pedigree) {
-            std::vector<Individual<> *> individuals;
-            for (const int id : pedigree.ids) {
-                individuals.push_back(pedigree.individuals.at(id));
-            }
             return nb::make_iterator(
-                nb::type<std::vector<Individual<> *>>(),
-                "iterator",
-                individuals.begin(),
-                individuals.end()
+                nb::type<Pedigree<>>(),  // Changed
+                "keys_iterator",
+                pedigree.ids.begin(),
+                pedigree.ids.end()
             );
-        }, nb::keep_alive<0, 1>())
+        }, nb::keep_alive<0,1>())
         .def("keys", [] (Pedigree<> &pedigree) {
             return pedigree.ids;
-        });
+        })
+        .def("items", [] (Pedigree<> &pedigree) {
+            std::vector<std::pair<int, Individual<> *>> kv;
+            kv.reserve(pedigree.ids.size());
+            for (const int id : pedigree.ids) {
+                kv.emplace_back(id, pedigree.individuals.at(id));
+            }
+            return nb::make_iterator(
+                nb::type<Pedigree<>>(),  // Changed from nb::type<std::vector<...>>()
+                "items_iterator",
+                kv.begin(),
+                kv.end()
+            );
+        }, nb::keep_alive<0,1>())
+        .def("values", [] (Pedigree<> &pedigree) {
+            std::vector<Individual<> *> vals;
+            vals.reserve(pedigree.ids.size());
+            for (const int id : pedigree.ids) {
+                vals.push_back(pedigree.individuals.at(id));
+            }
+            return nb::make_iterator(
+                nb::type<Pedigree<>>(),  // Changed
+                "values_iterator",
+                vals.begin(),
+                vals.end()
+            );
+        }, nb::keep_alive<0,1>());
 
     nb::class_<Individual<>>(m, "Individual")
         .def(nb::init<int, int, Individual<> *, Individual<> *, Sex>())
@@ -92,6 +114,9 @@ NB_MODULE(cgeneakit, m) {
         })
         .def_prop_ro("sex", [] (Individual<> &individual) {
             return (int) individual.sex;    
+        })
+        .def_prop_ro("rank", [] (Individual<> &individual) {
+            return (int) individual.rank;    
         })
         .def_prop_ro("children", [] (Individual<> &individual) {
             std::vector<Individual<>> children;

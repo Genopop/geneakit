@@ -11,9 +11,9 @@ def get_previous_generation(pedigree, ids):
     parent_set = set()
     for id in ids:
         individual = pedigree[id]
-        if individual.father and individual.father.ind:
+        if individual.father.ind:
             parent_set.add(individual.father.ind)
-        if individual.mother and individual.mother.ind:
+        if individual.mother.ind:
             parent_set.add(individual.mother.ind)
     return sorted(parent_set)
 
@@ -174,38 +174,33 @@ def compute_kinships_sparse(gen, pro=None, verbose=False, threshold=1e-9):
     if pro is None:
         pro = cgeneakit.get_proband_ids(gen)
 
-    # 1) Global compact reindex
-    all_ids = list(gen.keys())
-    id_to_idx = {id: i for i, id in enumerate(all_ids)}
-    n_total = len(all_ids)
-
-    # 2) Build parent index arrays
+    # 1) Build parent index arrays
+    n_total = len(gen)
     father_indices = np.full(n_total, -1, dtype=np.int32)
     mother_indices = np.full(n_total, -1, dtype=np.int32)
-    for i, id in enumerate(all_ids):
-        ind = gen[id]
-        if ind.father is not None and ind.father.ind in id_to_idx:
-            father_indices[i] = id_to_idx[ind.father.ind]
-        if ind.mother is not None and ind.mother.ind in id_to_idx:
-            mother_indices[i] = id_to_idx[ind.mother.ind]
+    for id, individual in gen.items():
+        if individual.father.ind:
+            father_indices[individual.rank] = individual.father.rank
+        if individual.mother.ind:
+            mother_indices[individual.rank] = individual.mother.rank
 
-    # 3) Vertex cuts
+    # 2) Vertex cuts
     raw_vertex_cuts = cut_vertices(gen, pro)
     cuts_mapped = []
     for cut in raw_vertex_cuts:
-        mapped = np.array([id_to_idx[idv] for idv in cut if idv in id_to_idx], dtype=np.int32)
+        mapped = np.array([gen[id].rank for id in cut], dtype=np.int32)
         cuts_mapped.append(mapped)
 
     if not cuts_mapped:
         return csc_matrix((0, 0), dtype=np.float64)
 
-    # 4) Initialize founders
+    # 3) Initialize founders
     n_founders = len(cuts_mapped[0])
     current_matrix = diags([0.5] * n_founders, shape=(n_founders, n_founders), 
                           format='csr', dtype=np.float64)
     current_self_kinships = np.full(n_founders, 0.5, dtype=np.float64)
 
-    # 5) Iterate through vertex cuts
+    # 4) Iterate through vertex cuts
     for t in range(len(cuts_mapped) - 1):
         current_cut = cuts_mapped[t]
         next_cut = cuts_mapped[t + 1]
