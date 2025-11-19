@@ -235,11 +235,14 @@ def compute_kinships_sparse(gen, pro=None, verbose=False, threshold=1e-9):
         # Step B: Final multiplication K_temp * P.T
         # This produces an N_next x N_next matrix
         # P.T is CSC (efficient column slicing), K_temp is CSR (efficient row slicing).
-        K_next_raw = K_temp.dot(P.T)
-
-        # Free heavy memory immediately
-        del K_temp
+        P_T = P.T.tocsc()
         del P
+
+        K_next_raw = K_temp.dot(P_T)
+
+        # Free memory
+        del K_temp
+        del P_T
         
         # --- DIAGONAL CORRECTION (In-place) ---
         
