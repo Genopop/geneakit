@@ -39,7 +39,7 @@ NB_MODULE(cgeneakit, m) {
         .def("__len__", &get_number_of_individuals)
         .def("__iter__", [] (Pedigree<> &pedigree) {
             return nb::make_iterator(
-                nb::type<Pedigree<>>(),  // Changed
+                nb::type<Pedigree<>>(),
                 "keys_iterator",
                 pedigree.ids.begin(),
                 pedigree.ids.end()
@@ -49,29 +49,19 @@ NB_MODULE(cgeneakit, m) {
             return pedigree.ids;
         })
         .def("items", [] (Pedigree<> &pedigree) {
-            std::vector<std::pair<int, Individual<> *>> kv;
-            kv.reserve(pedigree.ids.size());
-            for (const int id : pedigree.ids) {
-                kv.emplace_back(id, pedigree.individuals.at(id));
-            }
             return nb::make_iterator(
-                nb::type<Pedigree<>>(),  // Changed from nb::type<std::vector<...>>()
+                nb::type<Pedigree<>>(),
                 "items_iterator",
-                kv.begin(),
-                kv.end()
+                pedigree.individuals.begin(),
+                pedigree.individuals.end()
             );
         }, nb::keep_alive<0,1>())
         .def("values", [] (Pedigree<> &pedigree) {
-            std::vector<Individual<> *> vals;
-            vals.reserve(pedigree.ids.size());
-            for (const int id : pedigree.ids) {
-                vals.push_back(pedigree.individuals.at(id));
-            }
-            return nb::make_iterator(
-                nb::type<Pedigree<>>(),  // Changed
+            return nb::make_value_iterator(
+                nb::type<Pedigree<>>(),
                 "values_iterator",
-                vals.begin(),
-                vals.end()
+                pedigree.individuals.begin(),
+                pedigree.individuals.end()
             );
         }, nb::keep_alive<0,1>());
 

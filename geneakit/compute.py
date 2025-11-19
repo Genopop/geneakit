@@ -11,9 +11,9 @@ def get_previous_generation(pedigree, ids):
     parent_set = set()
     for id in ids:
         individual = pedigree[id]
-        if individual.father is not None and individual.father.ind:
+        if individual.father.ind:
             parent_set.add(individual.father.ind)
-        if individual.mother is not None and individual.mother.ind:
+        if individual.mother.ind:
             parent_set.add(individual.mother.ind)
     return sorted(parent_set)
 
@@ -170,10 +170,10 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
     n_total = len(gen)
     father_indices = np.full(n_total, -1, dtype=np.int32)
     mother_indices = np.full(n_total, -1, dtype=np.int32)
-    for id, individual in gen.items():
-        if individual.father is not None and individual.father.ind:
+    for individual in gen.values():
+        if individual.father.ind:
             father_indices[individual.rank] = individual.father.rank
-        if individual.mother is not None and individual.mother.ind:
+        if individual.mother.ind:
             mother_indices[individual.rank] = individual.mother.rank
 
     # 2) Vertex cuts
