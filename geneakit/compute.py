@@ -171,7 +171,7 @@ def compute_generation_fused(
       3. Accumulate contributions into a thread-local dense row (SPA).
     """
         
-    out_indptr = np.empty(n_next + 1, dtype=np.int32)
+    out_indptr = np.empty(n_next + 1, dtype=np.int64)
     out_indptr[0] = 0
         
     row_nnzs = np.zeros(n_next, dtype=np.int32)
@@ -246,7 +246,7 @@ def compute_generation_fused(
     for t in prange(num_threads):
         scratch_maps[t, :].fill(-1)
 
-    out_indices = np.empty(total_nnz, dtype=np.int32)
+    out_indices = np.empty(total_nnz, dtype=np.int64)
     out_data = np.empty(total_nnz, dtype=np.float32)
     output_diagonals = np.empty(n_next, dtype=np.float32)
     
@@ -370,7 +370,6 @@ def compute_generation_fused(
             
     return out_indices, out_indptr, out_data, output_diagonals
 
-
 def compute_kinships_sparse(gen, pro=None, verbose=False):
     if pro is None:
         pro = cgeneakit.get_proband_ids(gen)
@@ -400,8 +399,8 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
     # Initialize Founders
     n_founders = len(cuts_mapped[0])
     current_data = np.full(n_founders, 0.5, dtype=np.float32)
-    current_indices = np.arange(n_founders, dtype=np.int32)
-    current_indptr = np.arange(n_founders + 1, dtype=np.int32)
+    current_indices = np.arange(n_founders, dtype=np.int64) 
+    current_indptr = np.arange(n_founders + 1, dtype=np.int64)
     current_self_kinships = np.full(n_founders, 0.5, dtype=np.float32)
     
     # Allocate Scratch Space for Numba Threads
@@ -427,6 +426,7 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
         scratch_vals = np.zeros((n_threads, n_next), dtype=np.float32)
         scratch_cols = np.zeros((n_threads, n_next), dtype=np.int32)
         
+        # Call the optimized function
         next_indices, next_indptr, next_data, next_self = compute_generation_fused(
             n_next,
             up_map,
