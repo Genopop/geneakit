@@ -25,7 +25,7 @@ The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GEN
 
 ## System Requirements
 
-This software was [tested with Python 3.9+](https://github.com/Genopop/geneakit/actions/workflows/tests.yml), used mainly on Linux 5.14.0 x64 (with GCC 12) and developed with Python 3.13.7 on macOS 26.0 ARM64 (with Clang 17.0.0). It was not tested on Windows, but in theory should be compatible with Windows Subsystem for Linux (WSL). Otherwise OpenMP may cause the compilation to fail.
+This software was [tested with Python 3.10+](https://github.com/Genopop/geneakit/actions/workflows/tests.yml), used mainly on Linux 5.14.0 x64 (with GCC 12) and developed with Python 3.13.7 on macOS 26.0 ARM64 (with Clang 17.0.0). It was not tested on Windows, but in theory should be compatible with Windows Subsystem for Linux (WSL). Otherwise OpenMP may cause the compilation to fail.
 
 ## Installation
 
