@@ -1,10 +1,10 @@
+import time
+import cgeneakit
+from numba import njit
 import numpy as np
 import pandas as pd
-from scipy.sparse import csc_matrix, diags
+from scipy.sparse import csc_matrix, csr_matrix, diags
 from scipy.stats import bootstrap
-from numba import njit
-import cgeneakit
-import time
 
 def get_previous_generation(pedigree, ids):
     """Returns the previous generation of a set of individuals."""
@@ -68,21 +68,9 @@ def cut_vertices(pedigree, proband_ids):
     return vertex_cuts
 
 @njit(cache=True)
-def build_transfer_matrix_jit(n_next, next_cut, n_total, prev_map, father_indices, mother_indices):
+def build_transfer_matrix_jit(n_next, next_cut, prev_map, father_indices, mother_indices):
     """
-    Build COO arrays for the transfer matrix P (n_next x n_curr), plus parent pointers.
-
-    Inputs:
-      - next_cut: 1D array of local indices (0..n_total-1) for the *next* vertex cut
-      - prev_map: array length n_total mapping global local-index -> index within previous cut (or -1)
-      - father_indices / mother_indices: arrays length n_total mapping local-index -> parent's local-index (or -1)
-
-    Returns:
-      - data, rows, cols (sized to actual count)
-      - parent_pointers (n_next x 2) with:
-          - >=0 : index of parent in previous cut
-          - -1   : parent missing from previous cut
-          - -2   : copied individual (present in both cuts)
+    Build COO arrays for the transfer matrix P using float64 to save memory.
     """
     est_size = n_next * 2
     rows = np.empty(est_size, dtype=np.int32)
@@ -95,18 +83,18 @@ def build_transfer_matrix_jit(n_next, next_cut, n_total, prev_map, father_indice
     for i in range(n_next):
         ind = next_cut[i]  # local index (0..n_total-1)
 
-        # If this individual is present in previous cut (prev_map gives index >=0)
+        # If this individual is present in previous cut
         if prev_map[ind] >= 0:
             prev_idx = prev_map[ind]
             rows[count] = i
             cols[count] = prev_idx
             data[count] = 1.0
             count += 1
-            # Mark as copied individual: set both flags to -2 for clarity
+            # Mark as copied individual
             parent_pointers[i, 0] = -2
             parent_pointers[i, 1] = -2
         else:
-            # New individual: add contributions from parents if present in previous cut
+            # New individual
             father = father_indices[ind]
             mother = mother_indices[ind]
 
@@ -149,10 +137,9 @@ def compute_diagonal_correction(n_next, parent_pointers, current_self_kinships, 
         mother_idx = parent_pointers[i, 1]
 
         if father_idx == -2 and mother_idx == -2:
-            # copied individual; the diagonal computed by matrix product is already correct
+            # copied individual
             new_self_kinships[i] = computed_diagonals[i]
         else:
-            # Initialize contributions to 0.0
             phi_pp = 0.0
             phi_mm = 0.0
 
@@ -173,18 +160,26 @@ def compute_diagonal_correction(n_next, parent_pointers, current_self_kinships, 
 
     return new_self_kinships
 
+def prune_matrix(mat, threshold):
+    """In-place pruning of sparse matrix values below threshold."""
+    if threshold > 0 and mat.nnz > 0:
+        # Access the data array directly
+        mat.data[mat.data < threshold] = 0
+        mat.eliminate_zeros()
+    return mat
+
 def compute_kinships_sparse(gen, pro=None, verbose=False, threshold=1e-9):
     """Sparse kinship matrix computation using matrix multiplication (P K P')."""
 
     if pro is None:
         pro = cgeneakit.get_proband_ids(gen)
 
-    # 1) Global compact reindex: map pedigree IDs -> contiguous 0..n_total-1
+    # 1) Global compact reindex
     all_ids = list(gen.keys())
     id_to_idx = {id: i for i, id in enumerate(all_ids)}
     n_total = len(all_ids)
 
-    # 2) Build parent index arrays (local indices into 0..n_total-1)
+    # 2) Build parent index arrays
     father_indices = np.full(n_total, -1, dtype=np.int32)
     mother_indices = np.full(n_total, -1, dtype=np.int32)
     for i, id in enumerate(all_ids):
@@ -194,68 +189,80 @@ def compute_kinships_sparse(gen, pro=None, verbose=False, threshold=1e-9):
         if ind.mother is not None and ind.mother.ind in id_to_idx:
             mother_indices[i] = id_to_idx[ind.mother.ind]
 
-    # 3) Vertex cuts in original pedigree ID space -> map to local indices
+    # 3) Vertex cuts
     raw_vertex_cuts = cut_vertices(gen, pro)
     cuts_mapped = []
     for cut in raw_vertex_cuts:
-        # map pedigree IDs to local indices, drop any missing ones
         mapped = np.array([id_to_idx[idv] for idv in cut if idv in id_to_idx], dtype=np.int32)
         cuts_mapped.append(mapped)
 
     if not cuts_mapped:
-        return csc_matrix((0, 0))
+        return csc_matrix((0, 0), dtype=np.float64)
 
-    # 4) Initialize founders (cut 0)
+    # 4) Initialize founders
     n_founders = len(cuts_mapped[0])
-    current_matrix = diags([0.5] * n_founders, shape=(n_founders, n_founders), format='csc')
+    current_matrix = diags([0.5] * n_founders, shape=(n_founders, n_founders), 
+                          format='csr', dtype=np.float64)
     current_self_kinships = np.full(n_founders, 0.5, dtype=np.float64)
 
     # 5) Iterate through vertex cuts
     for t in range(len(cuts_mapped) - 1):
-        current_cut = cuts_mapped[t]     # array of local indices included in current cut
-        next_cut = cuts_mapped[t + 1]    # array of local indices for next cut
+        current_cut = cuts_mapped[t]
+        next_cut = cuts_mapped[t + 1]
         n_curr = len(current_cut)
         n_next = len(next_cut)
 
         if verbose:
             print(f"Processing cut {t+1}/{len(cuts_mapped)-1}: {n_curr} -> {n_next} individuals")
 
-        # Build prev_map of length n_total mapping local-index -> index within current cut (or -1)
+        # Build prev_map
         prev_map = np.full(n_total, -1, dtype=np.int32)
         for k in range(n_curr):
             prev_map[current_cut[k]] = k
 
-        # Build transfer matrix P as COO via JITed helper
+        # Build transfer matrix P
         p_data, p_rows, p_cols, parent_pointers = build_transfer_matrix_jit(
-            n_next, next_cut, n_total, prev_map, father_indices, mother_indices
+            n_next, next_cut, prev_map, father_indices, mother_indices
         )
 
-        # Create sparse P (n_next x n_curr)
-        P = csc_matrix((p_data, (p_rows, p_cols)), shape=(n_next, n_curr))
+        # Use CSR for P because P.dot(K) (row-based op)
+        P = csr_matrix((p_data, (p_rows, p_cols)), shape=(n_next, n_curr))
 
-        # Propagate: K_next_raw = P * K_curr * P^T
+        # --- MEMORY OPTIMIZED MULTIPLICATION ---
+        
+        # Step A: Intermediate multiplication P * K_prev
+        # This produces an N_next x N_curr matrix
         K_temp = P.dot(current_matrix)
+        
+        # Prune the intermediate matrix immediately.
+        prune_matrix(K_temp, threshold)
+
+        # Step B: Final multiplication K_temp * P.T
+        # This produces an N_next x N_next matrix
+        # P.T is CSC (efficient column slicing), K_temp is CSR (efficient row slicing).
         K_next_raw = K_temp.dot(P.T)
 
-        # Diagonal correction
+        # Free heavy memory immediately
+        del K_temp
+        del P
+        
+        # --- DIAGONAL CORRECTION (In-place) ---
+        
         computed_diagonals = K_next_raw.diagonal()
         corrected_diagonals = compute_diagonal_correction(
             n_next, parent_pointers, current_self_kinships, computed_diagonals
         )
 
-        # Set diagonal
+        # Overwrite diagonal in-place (no new allocation)
         K_next_raw.setdiag(corrected_diagonals)
-
-        # Update tracking vector for next iteration
+        
+        # Update tracking vector
         current_self_kinships = corrected_diagonals
 
-        # Thresholding
-        if threshold > 0:
-            mask = K_next_raw.data < threshold
-            if mask.any():
-                K_next_raw.data[mask] = 0.0
-            K_next_raw.eliminate_zeros()
+        # Final pruning
+        prune_matrix(K_next_raw, threshold)
 
+        # Update current matrix and force garbage collection
         current_matrix = K_next_raw
 
     return current_matrix

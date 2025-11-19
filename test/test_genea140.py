@@ -40,3 +40,7 @@ def test_half_siblings():
 def test_kinships():
     phi = gen.phi(ped)
     assert gen.phiMean(phi) == 0.0011437357709631094
+
+def test_sparse_kinships():
+    phi = gen.phi(ped, sparse=True)
+    assert gen.phiMean(phi) == 0.0011437357709631094
