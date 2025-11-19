@@ -99,27 +99,6 @@ double compute_mean_kinship(Matrix<double> &kinship_matrix);
 std::vector<double> compute_inbreedings(Pedigree<> &pedigree,
     std::vector<int> proband_ids);
 
-// Returns the meioses between two individuals.
-// A modified version of the recursive kinship algorithm from Karigl.
-double compute_meioses(
-    const Individual<Index> *individual1,
-    const Individual<Index> *individual2,
-    Matrix<char> &founder_matrix);
-
-// Compute the meioses between the individuals
-void compute_meioses_between_probands(
-    std::vector<Individual<Index> *> &vertex_cut,
-    Matrix<char> &founder_matrix,
-    Matrix<char> &proband_matrix);
-
-// Returns the meioses matrix using the algorithm from Morin et al.
-Matrix<char> compute_meiotic_distances(Pedigree<> &pedigree,
-    std::vector<int> proband_ids, bool verbose);
-
-// Returns the matrix of correlations between individuals.
-Matrix<double> compute_correlations(Pedigree<> &pedigree,
-    std::vector<int> proband_ids, bool verbose);
-
 // Adds the contribution of an individual.
 void add_contribution(const Individual<Contribution> *individual,
     const int depth);

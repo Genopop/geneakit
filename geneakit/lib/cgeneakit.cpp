@@ -314,42 +314,6 @@ NB_MODULE(cgeneakit, m) {
     m.def("compute_mean_kinship", &compute_mean_kinship,
         "Returns the mean kinship coefficient of a kinship matrix.");
 
-    m.def("compute_meiotic_distances", [] (Pedigree<> &pedigree,
-        std::vector<int> proband_ids, bool verbose) {
-            Matrix<char> meioses_matrix = compute_meiotic_distances(
-                pedigree, proband_ids, verbose
-            );
-            char *data = meioses_matrix.data();
-            nb::capsule owner(data, [](void *data) noexcept {
-                delete[] (char *) data;
-            });
-            return nb::ndarray<nb::numpy, char, nb::ndim<2>>(
-                data,
-                {meioses_matrix.rows(), meioses_matrix.cols()},
-                owner
-            );
-        },
-        nb::rv_policy::take_ownership,
-        "Returns the meioses matrix of a pedigree.");
-
-    m.def("compute_correlations", [] (Pedigree<> &pedigree,
-        std::vector<int> proband_ids, bool verbose) {
-            Matrix<double> correlation_matrix = compute_correlations(
-                pedigree, proband_ids, verbose
-            );
-            double *data = correlation_matrix.data();
-            nb::capsule owner(data, [](void *data) noexcept {
-                delete[] (double *) data;
-            });
-            return nb::ndarray<nb::numpy, double, nb::ndim<2>>(
-                data,
-                {correlation_matrix.rows(), correlation_matrix.cols()},
-                owner
-            );
-        },
-        nb::rv_policy::take_ownership,
-        "Returns the relationship matrix of a pedigree.");
-
     m.def("compute_genetic_contributions", [] (Pedigree<> &pedigree,
         std::vector<int> proband_ids, std::vector<int> ancestor_ids) {
             Matrix<double> contribution_matrix = compute_genetic_contributions(

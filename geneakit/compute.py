@@ -1,279 +1,265 @@
 import numpy as np
 import pandas as pd
-from scipy.sparse import csc_matrix
+from scipy.sparse import csc_matrix, diags
 from scipy.stats import bootstrap
-from numba import njit, prange
+from numba import njit
 import cgeneakit
 import time
 
-# Maximally JIT-compiled helper functions
-@njit(parallel=False, cache=True, fastmath=True)
-def compute_D_vector(n, sire, dam, F):
-    """Fully JIT-compiled D vector computation"""
-    D = np.ones(n, dtype=np.float64)
-    
-    for i in prange(n):
-        if sire[i] >= 0 and dam[i] >= 0:
-            # Both parents known
-            D[i] = 0.5 - 0.25 * (F[sire[i]] + F[dam[i]])
-        elif sire[i] >= 0 and dam[i] < 0:
-            # Only sire known
-            D[i] = 0.75 - 0.25 * F[sire[i]]
-        elif dam[i] >= 0 and sire[i] < 0:
-            # Only dam known
-            D[i] = 0.75 - 0.25 * F[dam[i]]
-        # else: D[i] remains 1.0 (no parents)
-    
-    return D
+def get_previous_generation(pedigree, ids):
+    """Returns the previous generation of a set of individuals."""
+    parent_set = set()
+    for id in ids:
+        individual = pedigree[id]
+        if individual.father and individual.father.ind:
+            parent_set.add(individual.father.ind)
+        if individual.mother and individual.mother.ind:
+            parent_set.add(individual.mother.ind)
+    return sorted(list(parent_set))
 
-@njit(cache=True, fastmath=True)
-def backward_solve_optimized(z, sire, dam, n):
-    """Optimized backward substitution with better memory access pattern"""
-    # Process in reverse order for (I - T')z = e_j
-    for i in range(n-1, -1, -1):
-        if z[i] != 0.0:
-            z_half = 0.5 * z[i]
-            if sire[i] >= 0:
-                z[sire[i]] += z_half
-            if dam[i] >= 0:
-                z[dam[i]] += z_half
-    return z
+def get_generations(pedigree, proband_ids):
+    """Go from the bottom to the top of the pedigree."""
+    generations = []
+    generation = list(proband_ids)
+    while generation:
+        generations.append(generation)
+        generation = get_previous_generation(pedigree, generation)
+    return generations
 
-@njit(cache=True, fastmath=True)
-def forward_solve_optimized(y, sire, dam, n):
-    """Optimized forward substitution with better memory access pattern"""
-    # Process in forward order for (I - T)y = w
-    for i in range(n):
-        parent_contrib = 0.0
-        if sire[i] >= 0:
-            parent_contrib += y[sire[i]]
-        if dam[i] >= 0:
-            parent_contrib += y[dam[i]]
-        if parent_contrib != 0.0:
-            y[i] += 0.5 * parent_contrib
-    return y
+def copy_bottom_up(generations):
+    """Drag the individuals up (bottom-up closure)."""
+    bottom_up = []
+    ids = sorted(list(generations[0]))
+    bottom_up.append(ids)
+    for i in range(len(generations) - 1):
+        next_generation = list(set(bottom_up[i]) | set(generations[i + 1]))
+        bottom_up.append(sorted(next_generation))
+    bottom_up.reverse()
+    return bottom_up
 
-@njit(cache=True, fastmath=True)
-def compute_column_dense(j, n, sire, dam, D, pro_idx):
-    """Compute a single column of A matrix - fully JIT compiled"""
-    # Initialize work arrays
-    z = np.zeros(n, dtype=np.float64)
-    y = np.zeros(n, dtype=np.float64)
-    
-    # Set unit vector
-    z[j] = 1.0
-    
-    # Step 1: Backward substitution
-    z = backward_solve_optimized(z, sire, dam, n)
-    
-    # Step 2: Apply D
-    for i in range(n):
-        y[i] = D[i] * z[i]
-    
-    # Step 3: Forward substitution
-    y = forward_solve_optimized(y, sire, dam, n)
-    
-    # Extract values for probands only
-    n_pro = len(pro_idx)
-    result = np.zeros(n_pro, dtype=np.float64)
-    for i in range(n_pro):
-        result[i] = y[pro_idx[i]]
-    
-    return result
+def copy_top_down(generations):
+    """Drag the individuals down (top-down closure)."""
+    gens_reversed = list(reversed(generations))
+    top_down = []
+    ids = sorted(gens_reversed[0])
+    top_down.append(ids)
+    for i in range(len(gens_reversed) - 1):
+        next_generation = list(set(top_down[i]) | set(gens_reversed[i + 1]))
+        top_down.append(sorted(next_generation))
+    return top_down
 
-@njit(parallel=True, cache=True, fastmath=True)
-def compute_A_matrix_parallel(n, n_pro, sire, dam, D, pro_idx):
-    """Fully JIT-compiled parallel computation of entire A matrix"""
-    A_matrix = np.zeros((n_pro, n_pro), dtype=np.float64)
-    
-    # Process columns in parallel
-    for j_idx in prange(n_pro):
-        j = pro_idx[j_idx]
-        
-        # Compute column j
-        col_values = compute_column_dense(j, n, sire, dam, D, pro_idx)
-        
-        # Store in matrix
-        for i_idx in range(n_pro):
-            A_matrix[i_idx, j_idx] = col_values[i_idx]
-    
-    return A_matrix
+def intersect_both_directions(bottom_up, top_down):
+    """Find the intersection of the two sets (the vertex cuts)."""
+    vertex_cuts = []
+    for i in range(len(bottom_up)):
+        vertex_cut = sorted(list(np.intersect1d(bottom_up[i], top_down[i])))
+        vertex_cuts.append(vertex_cut)
+    return vertex_cuts
+
+def cut_vertices(pedigree, proband_ids):
+    """Separate individuals into generations using recursive-cut algorithm."""
+    generations = get_generations(pedigree, proband_ids)
+    if not generations:
+        return [list(proband_ids)]
+    bottom_up = copy_bottom_up(generations)
+    top_down = copy_top_down(generations)
+    vertex_cuts = intersect_both_directions(bottom_up, top_down)
+    vertex_cuts[-1] = sorted(list(proband_ids))
+    return vertex_cuts
 
 @njit(cache=True)
-def compute_A_matrix_sequential(n, n_pro, sire, dam, D, pro_idx):
-    """Sequential version for comparison or when parallel isn't beneficial"""
-    A_matrix = np.zeros((n_pro, n_pro), dtype=np.float64)
-    
-    for j_idx in range(n_pro):
-        j = pro_idx[j_idx]
-        col_values = compute_column_dense(j, n, sire, dam, D, pro_idx)
-        A_matrix[:, j_idx] = col_values
-    
-    return A_matrix
-
-@njit(cache=True)
-def compute_sparse_entries(n, n_pro, sire, dam, D, pro_idx):
-    """Compute sparse matrix entries - fully JIT compiled"""
-    nnzero = 0
-    # First pass to count non-zero entries
-    for j_idx in range(n_pro):
-        j = pro_idx[j_idx]
-        col_values = compute_column_dense(j, n, sire, dam, D, pro_idx)
-        for i_idx in range(n_pro):
-            if col_values[i_idx] > 0.0:
-                nnzero += 1
-    
-    # Pre-allocate lists for CSC format
-    data = np.zeros(nnzero, dtype=np.float64)
-    indices = np.zeros(nnzero, dtype=np.int32)
-    indptr = np.zeros(n_pro+1, dtype=np.int32)
-    entry_count = 0
-    
-    for j_idx in range(n_pro):
-        j = pro_idx[j_idx]
-        col_values = compute_column_dense(j, n, sire, dam, D, pro_idx)
-        
-        for i_idx in range(n_pro):
-            val = col_values[i_idx]
-            if val > 0.0:
-                indices[entry_count] = i_idx
-                data[entry_count] = val
-                entry_count += 1
-
-        indptr[j_idx + 1] = entry_count
-    
-    # Return only used portion
-    return (data, indices, indptr)
-
-# Additional optimization: Batch processing for very large pedigrees
-@njit(parallel=True, cache=True)
-def compute_A_matrix_blocked(n, n_pro, sire, dam, D, pro_idx, block_size=64):
-    """Block-wise computation for better cache utilization"""
-    A_matrix = np.zeros((n_pro, n_pro), dtype=np.float64)
-    
-    # Process in blocks for better cache locality
-    n_blocks = (n_pro + block_size - 1) // block_size
-    
-    for block_j in prange(n_blocks):
-        j_start = block_j * block_size
-        j_end = min(j_start + block_size, n_pro)
-        
-        for j_idx in range(j_start, j_end):
-            j = pro_idx[j_idx]
-            col_values = compute_column_dense(j, n, sire, dam, D, pro_idx)
-            
-            # Store results
-            for i_idx in range(n_pro):
-                A_matrix[i_idx, j_idx] = col_values[i_idx]
-    
-    return A_matrix
-
-def A(gen, **kwargs):
-    """Compute additive genetic relationship matrix using maximally JIT-optimized Colleau's method
-    
-    This version maximizes JIT compilation for optimal performance.
-    All core computations are JIT-compiled with Numba.
-    
-    Args:
-        gen (cgeneakit.Pedigree): Initialized genealogy object
-        pro (list, optional): Proband IDs to include (default: all)
-        sparse (bool, optional): Return sparse matrix if True (default: False)
-        verbose (bool, optional): Print timing info if True (default: False)
-        parallel (bool, optional): Use parallel computation if True (default: True)
-        block_size (int, optional): Block size for cache optimization (default: 64)
-        
-    Returns:
-        pd.DataFrame or scipy.sparse.csc_matrix: Additive relationship matrix
+def build_transfer_matrix_jit(n_next, next_cut, n_total, prev_map, father_indices, mother_indices):
     """
-    
-    # Get parameters
-    pro = kwargs.get('pro', None)
+    Build COO arrays for the transfer matrix P (n_next x n_curr), plus parent pointers.
+
+    Inputs:
+      - next_cut: 1D array of local indices (0..n_total-1) for the *next* vertex cut
+      - prev_map: array length n_total mapping global local-index -> index within previous cut (or -1)
+      - father_indices / mother_indices: arrays length n_total mapping local-index -> parent's local-index (or -1)
+
+    Returns:
+      - data, rows, cols (sized to actual count)
+      - parent_pointers (n_next x 2) with:
+          - >=0 : index of parent in previous cut
+          - -1   : parent missing from previous cut
+          - -2   : copied individual (present in both cuts)
+    """
+    est_size = n_next * 2
+    rows = np.empty(est_size, dtype=np.int32)
+    cols = np.empty(est_size, dtype=np.int32)
+    data = np.empty(est_size, dtype=np.float64)
+    count = 0
+
+    parent_pointers = np.full((n_next, 2), -1, dtype=np.int32)
+
+    for i in range(n_next):
+        ind = next_cut[i]  # local index (0..n_total-1)
+
+        # If this individual is present in previous cut (prev_map gives index >=0)
+        if ind >= 0 and ind < n_total and prev_map[ind] >= 0:
+            prev_idx = prev_map[ind]
+            rows[count] = i
+            cols[count] = prev_idx
+            data[count] = 1.0
+            count += 1
+            # Mark as copied individual: set both flags to -2 for clarity
+            parent_pointers[i, 0] = -2
+            parent_pointers[i, 1] = -2
+        else:
+            # New individual: add contributions from parents if present in previous cut
+            father = father_indices[ind]
+            mother = mother_indices[ind]
+
+            # Father contribution
+            if father >= 0 and father < n_total and prev_map[father] >= 0:
+                father_idx = prev_map[father]
+                rows[count] = i
+                cols[count] = father_idx
+                data[count] = 0.5
+                count += 1
+                parent_pointers[i, 0] = father_idx
+
+            # Mother contribution
+            if mother >= 0 and mother < n_total and prev_map[mother] >= 0:
+                mother_idx = prev_map[mother]
+                rows[count] = i
+                cols[count] = mother_idx
+                data[count] = 0.5
+                count += 1
+                parent_pointers[i, 1] = mother_idx
+
+    return data[:count], rows[:count], cols[:count], parent_pointers
+
+@njit(cache=True)
+def compute_diagonal_correction(n_next, parent_pointers, current_self_kinships, computed_diagonals):
+    """
+    Compute corrected diagonal values for K_next.
+
+    parent_pointers flags:
+      - (-2, -2) => copied individual: keep computed diagonal
+      - else => new individual: compute true diagonal using:
+           true = 0.5 + (raw - 0.25*(phi_pp + phi_mm))
+       where raw = 0.25 phi_pp + 0.25 phi_mm + 0.5 phi_pm
+    If a parent is missing from the previous cut, its contribution to raw was 0.
+    """
+    new_self_kinships = np.empty(n_next, dtype=np.float64)
+
+    for i in range(n_next):
+        father_idx = parent_pointers[i, 0]
+        mother_idx = parent_pointers[i, 1]
+
+        if father_idx == -2 and mother_idx == -2:
+            # copied individual; the diagonal computed by matrix product is already correct
+            new_self_kinships[i] = computed_diagonals[i]
+        else:
+            # Initialize contributions to 0.0
+            phi_pp = 0.0
+            phi_mm = 0.0
+
+            if father_idx >= 0:
+                phi_pp = current_self_kinships[father_idx]
+            if mother_idx >= 0:
+                phi_mm = current_self_kinships[mother_idx]
+
+            # raw diagonal produced by P K_prev P^T
+            value = computed_diagonals[i]
+
+            # true diagonal (for a child) = 0.5 + 0.5*phi_pm
+            # but phi_pm = (value - 0.25*phi_pp - 0.25*phi_mm)/0.5
+            # so true = 0.5 + (value - 0.25*(phi_pp + phi_mm))
+            true_value = 0.5 + value - 0.25 * (phi_pp + phi_mm)
+
+            new_self_kinships[i] = true_value
+
+    return new_self_kinships
+
+def compute_kinships_sparse(gen, pro=None, verbose=False, threshold=1e-9):
+    """Sparse kinship matrix computation using matrix multiplication (P K P')."""
+
     if pro is None:
         pro = cgeneakit.get_proband_ids(gen)
-    sparse = kwargs.get('sparse', False)
-    verbose = kwargs.get('verbose', False)
-    parallel = kwargs.get('parallel', True)
-    block_size = kwargs.get('block_size', 64)
-    
-    if verbose: 
-        begin = time.time()
-        print(f"Computing A matrix for {len(pro)} probands...")
-    
-    # Get all individuals and create mapping
+
+    # 1) Global compact reindex: map pedigree IDs -> contiguous 0..n_total-1
     all_ids = list(gen.keys())
-    n = len(all_ids)
-    id_to_idx = {id_val: idx for idx, id_val in enumerate(all_ids)}
-    
-    # Get proband indices
-    pro_idx = np.array([id_to_idx[p] for p in pro if p in id_to_idx], dtype=np.int32)
-    n_pro = len(pro_idx)
-    
-    if verbose:
-        print(f"Total individuals: {n}, Probands: {n_pro}")
-    
-    # Build parent indices - optimized with NumPy
-    ped = cgeneakit.output_pedigree(gen)
-    sire = np.full(n, -1, dtype=np.int32)
-    dam = np.full(n, -1, dtype=np.int32)
-    
-    # Vectorized parent index assignment
-    for i in range(n):
-        if ped[i,1] > 0 and ped[i,1] in id_to_idx:
-            sire[i] = id_to_idx[ped[i,1]]
-        if ped[i,2] > 0 and ped[i,2] in id_to_idx:
-            dam[i] = id_to_idx[ped[i,2]]
-    
-    # Get inbreeding coefficients
-    F = np.array(cgeneakit.compute_inbreedings(gen, all_ids), dtype=np.float64)
-    
-    # Compute D vector using JIT-compiled function
-    if verbose:
-        d_start = time.time()
-    D = compute_D_vector(n, sire, dam, F)
-    if verbose:
-        print(f"D vector computed in {time.time()-d_start:.3f}s")
-    
-    # Compute A matrix
-    if verbose:
-        matrix_start = time.time()
-    
-    if sparse:
-        # Compute sparse entries
-        data, indices, indptr = compute_sparse_entries(
-            n, n_pro, sire, dam, D, pro_idx
+    id_to_idx = {id_val: i for i, id_val in enumerate(all_ids)}
+    n_total = len(all_ids)
+
+    # 2) Build parent index arrays (local indices into 0..n_total-1)
+    father_indices = np.full(n_total, -1, dtype=np.int32)
+    mother_indices = np.full(n_total, -1, dtype=np.int32)
+    for i, id_val in enumerate(all_ids):
+        ind = gen[id_val]
+        if ind.father is not None and ind.father.ind in id_to_idx:
+            father_indices[i] = id_to_idx[ind.father.ind]
+        if ind.mother is not None and ind.mother.ind in id_to_idx:
+            mother_indices[i] = id_to_idx[ind.mother.ind]
+
+    # 3) Vertex cuts in original pedigree ID space -> map to local indices
+    raw_vertex_cuts = cut_vertices(gen, pro)
+    cuts_mapped = []
+    for cut in raw_vertex_cuts:
+        # map pedigree IDs to local indices, drop any missing ones
+        mapped = np.array([id_to_idx[idv] for idv in cut if idv in id_to_idx], dtype=np.int32)
+        cuts_mapped.append(mapped)
+
+    if not cuts_mapped:
+        return csc_matrix((0, 0))
+
+    # 4) Initialize founders (cut 0)
+    n_founders = len(cuts_mapped[0])
+    current_matrix = diags([0.5] * n_founders, shape=(n_founders, n_founders), format='csc')
+    current_self_kinships = np.full(n_founders, 0.5, dtype=np.float64)
+
+    # 5) Iterate through vertex cuts
+    for t in range(len(cuts_mapped) - 1):
+        current_cut = cuts_mapped[t]     # array of local indices included in current cut
+        next_cut = cuts_mapped[t + 1]    # array of local indices for next cut
+        n_curr = len(current_cut)
+        n_next = len(next_cut)
+
+        if verbose:
+            print(f"Processing cut {t+1}/{len(cuts_mapped)-1}: {n_curr} -> {n_next} individuals")
+
+        # Build prev_map of length n_total mapping local-index -> index within current cut (or -1)
+        prev_map = np.full(n_total, -1, dtype=np.int32)
+        for k in range(n_curr):
+            prev_map[current_cut[k]] = k
+
+        # Build transfer matrix P as COO via JITed helper
+        p_data, p_rows, p_cols, parent_pointers = build_transfer_matrix_jit(
+            n_next, next_cut, n_total, prev_map, father_indices, mother_indices
         )
-        
-        # Create sparse matrix
-        A_sparse = csc_matrix((data, indices, indptr), copy=False)
-        result = A_sparse.tocsc()
-        
-    else:
-        # Choose computation strategy based on size and settings
-        if n_pro < 100:
-            # Small matrices: sequential is often faster
-            A_matrix = compute_A_matrix_sequential(n, n_pro, sire, dam, D, pro_idx)
-        elif parallel and n_pro > 500:
-            # Large matrices with parallel enabled: use blocked parallel
-            A_matrix = compute_A_matrix_blocked(
-                n, n_pro, sire, dam, D, pro_idx, block_size
-            )
-        elif parallel:
-            # Medium matrices with parallel: use simple parallel
-            A_matrix = compute_A_matrix_parallel(n, n_pro, sire, dam, D, pro_idx)
-        else:
-            # Parallel disabled: use sequential
-            A_matrix = compute_A_matrix_sequential(n, n_pro, sire, dam, D, pro_idx)
-        
-        result = pd.DataFrame(A_matrix, index=pro, columns=pro)
-    
-    if verbose:
-        matrix_time = time.time() - matrix_start
-        total_time = time.time() - begin
-        print(f"Matrix computation: {matrix_time:.3f}s")
-        print(f"Total time: {total_time:.3f}s")
-    
-    return result
-        
+
+        # Create sparse P (n_next x n_curr)
+        P = csc_matrix((p_data, (p_rows, p_cols)), shape=(n_next, n_curr))
+
+        # Propagate: K_next_raw = P * K_curr * P^T
+        K_temp = P.dot(current_matrix)
+        K_next_raw = K_temp.dot(P.T)
+
+        # Diagonal correction
+        computed_diagonals = K_next_raw.diagonal()
+        corrected_diagonals = compute_diagonal_correction(
+            n_next, parent_pointers, current_self_kinships, computed_diagonals
+        )
+
+        # Set diagonal
+        K_next_raw.setdiag(corrected_diagonals)
+
+        # Update tracking vector for next iteration
+        current_self_kinships = corrected_diagonals
+
+        # Thresholding & symmetrize to maintain numerical symmetry
+        if threshold is not None and threshold > 0:
+            mask = K_next_raw.data < threshold
+            if mask.any():
+                K_next_raw.data[mask] = 0.0
+            K_next_raw.eliminate_zeros()
+
+        current_matrix = K_next_raw
+
+    return current_matrix
+
 def phi(gen, **kwargs):
     """Compute kinship coefficients between probands
     
@@ -316,10 +302,15 @@ def phi(gen, **kwargs):
         print(f'You will require at least {required_memory} GB of RAM.')
         return
     
-    if verbose: begin = time.time()
+    if verbose:
+        begin = time.time()
         
     if sparse:
-        kinship_matrix = A(gen, pro=pro, sparse=True, verbose=verbose) / 2
+        kinship_matrix = compute_kinships_sparse(gen, pro=pro, verbose=verbose)
+        pro_sorted = sorted(list(pro))
+        kinship_matrix = pd.DataFrame.sparse.from_spmatrix(
+            kinship_matrix, index=pro_sorted, columns=pro_sorted
+        )
     else:
         cmatrix = cgeneakit.compute_kinships(gen, pro, verbose)
         kinship_matrix = pd.DataFrame(cmatrix, index=pro, columns=pro, copy=False)
@@ -549,69 +540,6 @@ def fCI(vectF, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
         columns=[f"{p*100}%" for p in prob],
         index=["Mean"]
     )
-
-def meioses(gen, **kwargs):
-    """Compute meiotic distances between probands
-    
-    Args:
-        gen (cgeneakit.Pedigree): Initialized genealogy object
-        pro (list, optional): Proband IDs (default: all)
-        verbose (bool): Print computing info if True
-        
-    Returns:
-        pd.DataFrame: Distance matrix with:
-            - Rows/columns: Proband IDs
-            - Values: Minimum meioses between pairs
-            
-    Examples:
-        >>> import geneakit as gen
-        >>> from geneakit import geneaJi
-        >>> ped = gen.genealogy(geneaJi)
-        >>> dist_mat = gen.meioses(ped)
-        >>> print(dist_mat)
-            1   2   29
-        1    0   2   7
-        2    2   0   7
-        29   7   7   0
-    """
-    pro = kwargs.get('pro', None)
-    if pro is None:
-        pro = cgeneakit.get_proband_ids(gen)
-    verbose = kwargs.get('verbose', False)
-    
-    if verbose: begin = time.time()
-    cmatrix = cgeneakit.compute_meiotic_distances(gen, pro, verbose)
-    if verbose: 
-        print(f"Time: {time.time()-begin:.2f}s")
-        
-    return pd.DataFrame(cmatrix, index=pro, columns=pro, copy=False)
-
-def corr(gen, **kwargs):
-    """Calculate genetic correlation matrix
-    
-    Args:
-        gen (cgeneakit.Pedigree): Initialized genealogy object
-        pro (list, optional): Proband IDs (default: all)
-        verbose (bool): Print computing info if True
-        
-    Returns:
-        pd.DataFrame: Correlation matrix with:
-            - Rows/columns: Proband IDs
-            - Values: Genetic correlation coefficients
-            
-    Notes:
-        Correlations represent shared ancestry proportion
-    """
-    pro = kwargs.get('pro', None)
-    if pro is None:
-        pro = cgeneakit.get_proband_ids(gen)
-    verbose = kwargs.get('verbose', False)
-    
-    if verbose: begin = time.time()
-    cmatrix = cgeneakit.compute_correlations(gen, pro, verbose)
-    if verbose: print(f"Time: {time.time()-begin:.2f}s")
-        
-    return pd.DataFrame(cmatrix, index=pro, columns=pro, copy=False)
 
 def gc(pedigree, **kwargs):
     """Compute genetic contribution of ancestors to probands
