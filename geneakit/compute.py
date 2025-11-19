@@ -1,4 +1,6 @@
+import gc as gc_
 import time
+
 import cgeneakit
 from numba import njit
 import numpy as np
@@ -71,11 +73,12 @@ def cut_vertices(pedigree, proband_ids):
 def build_transfer_matrix_jit(n_next, next_cut, prev_map, father_indices, mother_indices):
     """
     Build COO arrays for the transfer matrix P.
+    Optimized to use float32 to save memory.
     """
     est_size = n_next * 2
     rows = np.empty(est_size, dtype=np.int32)
     cols = np.empty(est_size, dtype=np.int32)
-    data = np.empty(est_size, dtype=np.float64)
+    data = np.empty(est_size, dtype=np.float32)
     count = 0
 
     parent_pointers = np.full((n_next, 2), -1, dtype=np.int32)
@@ -130,7 +133,7 @@ def compute_diagonal_correction(n_next, parent_pointers, current_self_kinships, 
        where raw = 0.25 phi_pp + 0.25 phi_mm + 0.5 phi_pm
     If a parent is missing from the previous cut, its contribution to raw was 0.
     """
-    new_self_kinships = np.empty(n_next, dtype=np.float64)
+    new_self_kinships = np.empty(n_next, dtype=np.float32)
 
     for i in range(n_next):
         father_idx = parent_pointers[i, 0]
@@ -184,13 +187,13 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
         cuts_mapped.append(mapped)
 
     if not cuts_mapped:
-        return csc_matrix((0, 0), dtype=np.float64)
+        return csc_matrix((0, 0), dtype=np.float32)
 
     # 3) Initialize founders
     n_founders = len(cuts_mapped[0])
     current_matrix = diags([0.5] * n_founders, shape=(n_founders, n_founders), 
-                          format='csr', dtype=np.float64)
-    current_self_kinships = np.full(n_founders, 0.5, dtype=np.float64)
+                          format='csr', dtype=np.float32)
+    current_self_kinships = np.full(n_founders, 0.5, dtype=np.float32)
 
     # 4) Iterate through vertex cuts
     for t in range(len(cuts_mapped) - 1):
@@ -217,21 +220,24 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
 
         # --- MEMORY OPTIMIZED MULTIPLICATION ---
         
-        # Step A: Intermediate multiplication P * K_prev
-        # This produces an N_next x N_curr matrix
+        # Step A: Intermediate multiplication K_temp = P * K_prev
+        # Result is (n_next x n_curr)
         K_temp = P.dot(current_matrix)
+        
+        # Release previous generation matrix immediately
+        del current_matrix
+        gc_.collect()
 
-        # Step B: Final multiplication K_temp * P.T
-        # This produces an N_next x N_next matrix
-        # P.T is CSC (efficient column slicing), K_temp is CSR (efficient row slicing).
-        P_T = P.T.tocsc()
-        del P
-
+        # Step B: Final multiplication K_next = K_temp * P^T
+        P_T = P.transpose()
+        
         K_next_raw = K_temp.dot(P_T)
 
-        # Free memory
+        # Free intermediate matrices immediately
         del K_temp
+        del P
         del P_T
+        gc_.collect()
         
         # --- DIAGONAL CORRECTION (In-place) ---
         
@@ -240,14 +246,17 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
             n_next, parent_pointers, current_self_kinships, computed_diagonals
         )
 
-        # Overwrite diagonal in-place (no new allocation)
-        K_next_raw = K_next_raw + diags(corrected_diagonals - computed_diagonals, format='csr')  
+        # Update diagonal in-place
+        K_next_raw.setdiag(corrected_diagonals)
 
         # Update tracking vector
         current_self_kinships = corrected_diagonals
 
-        # Update current matrix and force garbage collection
+        # Update current matrix
         current_matrix = K_next_raw
+
+        # Final GC for the loop iteration
+        gc_.collect()
 
     return current_matrix
 

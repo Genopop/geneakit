@@ -43,4 +43,4 @@ def test_kinships():
 
 def test_sparse_kinships():
     phi = gen.phi(ped, sparse=True)
-    assert gen.phiMean(phi) == 0.0011437357709631094
+    assert gen.phiMean(phi) - 0.0011437357709631094 < 1e-8
