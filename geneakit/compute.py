@@ -69,7 +69,7 @@ def cut_vertices(pedigree, proband_ids):
     bottom_up = copy_bottom_up(generations)
     top_down = copy_top_down(generations)
     vertex_cuts = intersect_both_directions(bottom_up, top_down)
-    vertex_cuts[-1] = sorted(proband_ids)
+    vertex_cuts[-1] = proband_ids
     return vertex_cuts
 
 # ---------------------------------------------------------
@@ -492,10 +492,8 @@ def phi(gen, **kwargs):
         
     if sparse:
         kinship_matrix = compute_kinships_sparse(gen, pro=pro, verbose=verbose)
-        pro_sorted = sorted(list(pro))
         kinship_matrix = pd.DataFrame.sparse.from_spmatrix(
-            kinship_matrix, index=pro_sorted, columns=pro_sorted
-        )
+            kinship_matrix, index=pro, columns=pro)
     else:
         cmatrix = cgeneakit.compute_kinships(gen, pro, verbose)
         kinship_matrix = pd.DataFrame(cmatrix, index=pro, columns=pro, copy=False)
