@@ -308,9 +308,6 @@ def compute_generation_fused(
         
         spa_values[i] = diag_val
         
-        # Sort locally
-        local_indices[:local_ptr].sort()
-        
         # Write global
         global_offset = out_indptr[i]
         for k in range(local_ptr):
