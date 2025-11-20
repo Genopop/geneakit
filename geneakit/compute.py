@@ -4,7 +4,7 @@ import cgeneakit
 import numpy as np
 import pandas as pd
 from numba import njit, prange, get_num_threads, get_thread_id
-from scipy.sparse import csr_matrix, csc_matrix, issparse
+from scipy.sparse import csr_matrix, issparse
 from scipy.stats import bootstrap
 
 # ---------------------------------------------------------
@@ -20,7 +20,7 @@ def get_previous_generation(pedigree, ids):
             parent_set.add(individual.father.ind)
         if individual.mother.ind:
             parent_set.add(individual.mother.ind)
-    return sorted(parent_set)
+    return list(parent_set)
 
 def get_generations(pedigree, proband_ids):
     """Go from the bottom to the top of the pedigree."""
@@ -34,10 +34,10 @@ def get_generations(pedigree, proband_ids):
 def copy_bottom_up(generations):
     """Drag the individuals up (bottom-up closure)."""
     bottom_up = []
-    ids = sorted(generations[0])
+    ids = generations[0]
     bottom_up.append(ids)
     for i in range(len(generations) - 1):
-        next_generation = sorted(set(bottom_up[i]) | set(generations[i + 1]))
+        next_generation = list(set(bottom_up[i]) | set(generations[i + 1]))
         bottom_up.append(next_generation)
     bottom_up.reverse()
     return bottom_up
@@ -46,10 +46,10 @@ def copy_top_down(generations):
     """Drag the individuals down (top-down closure)."""
     gens_reversed = list(reversed(generations))
     top_down = []
-    ids = sorted(gens_reversed[0])
+    ids = gens_reversed[0]
     top_down.append(ids)
     for i in range(len(gens_reversed) - 1):
-        next_generation = sorted(set(top_down[i]) | set(gens_reversed[i + 1]))
+        next_generation = list(set(top_down[i]) | set(gens_reversed[i + 1]))
         top_down.append(next_generation)
     return top_down
 
@@ -57,7 +57,7 @@ def intersect_both_directions(bottom_up, top_down):
     """Find the intersection of the two sets (the vertex cuts)."""
     vertex_cuts = []
     for i in range(len(bottom_up)):
-        vertex_cut = sorted(np.intersect1d(bottom_up[i], top_down[i]))
+        vertex_cut = list(np.intersect1d(bottom_up[i], top_down[i]))
         vertex_cuts.append(vertex_cut)
     return vertex_cuts
 
@@ -530,12 +530,12 @@ def phi(gen, **kwargs):
     Args:
         gen (cgeneakit.Pedigree): Initialized genealogy.
         pro (list, optional): Proband IDs.
-        verbose (bool): Print details.
-        compute (bool): Estimate memory if False.
-        sparse (bool): Use sparse computation algorithm (graph cuts).
-        dense_output (bool): If True and sparse=True, computes the final matrix 
-                             directly as a dense array. Faster for dense outputs.
-        raw (bool): If True, returns (matrix, ids). If False, returns pd.DataFrame.
+        verbose (bool, default False): Print details.
+        compute (bool, default True): Estimate memory if False.
+        sparse (bool, default False): Use sparse computation algorithm (graph cuts).
+        dense_output (bool, default False): If True and sparse=True, computes the final matrix
+            directly as a dense array. Faster for dense outputs.
+        raw (bool, default False): If True, returns (matrix, ids). If False, returns pd.DataFrame.
     
     Returns:
         pd.DataFrame: Default.
@@ -654,7 +654,6 @@ def phiOver(phiMatrix, threshold):
 
     # DataFrame / Dense Logic
     rows = phiMatrix.shape[0]
-    cols = phiMatrix.shape[1]
     
     for i in range(rows):
         for j in range(i):
