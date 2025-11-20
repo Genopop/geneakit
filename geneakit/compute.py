@@ -3,9 +3,8 @@ import time
 import cgeneakit
 import numpy as np
 import pandas as pd
-from pandas.arrays import SparseArray
 from numba import njit, prange, get_num_threads, get_thread_id
-from scipy.sparse import csr_matrix, csc_matrix
+from scipy.sparse import csr_matrix, csc_matrix, issparse
 from scipy.stats import bootstrap
 
 # ---------------------------------------------------------
@@ -74,31 +73,20 @@ def cut_vertices(pedigree, proband_ids):
     return vertex_cuts
 
 # ---------------------------------------------------------
-# Numba Optimized Kernels
+# Numba Optimized Kernels (int64 support)
 # ---------------------------------------------------------
 
 @njit(cache=True)
 def build_maps(n_next, next_cut, prev_map, father_indices, mother_indices):
-    """
-    Constructs two mapping structures:
-    1. up_map: Stores (parent1_idx, parent2_idx) for each individual in next_cut.
-               Indices point to rows in the previous K matrix.
-    2. down_map: A CSR-like structure mapping an index in prev_cut to a list of 
-                 children indices in next_cut.
-    """
     # UP MAP: n_next x 2
-    # -2 means "is self/copy", -1 means "missing parent", >=0 is index in prev
-    up_map = np.full((n_next, 2), -1, dtype=np.int32)
+    up_map = np.full((n_next, 2), -1, dtype=np.int64)
     
-    # Prepare for DOWN MAP (CSR construction)
-    # We need counts first
     n_prev = len(prev_map)
-    down_counts = np.zeros(n_prev, dtype=np.int32)
+    down_counts = np.zeros(n_prev, dtype=np.int64)
     
     for i in range(n_next):
         ind = next_cut[i]
         
-        # Check if individual exists in previous cut (pass-through/copy)
         if ind < len(prev_map) and prev_map[ind] >= 0:
             prev_idx = prev_map[ind]
             up_map[i, 0] = prev_idx
@@ -123,12 +111,11 @@ def build_maps(n_next, next_cut, prev_map, father_indices, mother_indices):
                     down_counts[m_idx] += 1
                     
     # Build Down Map CSR
-    down_indptr = np.zeros(n_prev + 1, dtype=np.int32)
+    down_indptr = np.zeros(n_prev + 1, dtype=np.int64)
     for k in range(n_prev):
         down_indptr[k+1] = down_indptr[k] + down_counts[k]
         
-    down_indices = np.empty(down_indptr[-1], dtype=np.int32)
-    # Reuse down_counts as head pointers
+    down_indices = np.empty(down_indptr[-1], dtype=np.int64)
     current_heads = down_indptr[:-1].copy() 
     
     for i in range(n_next):
@@ -161,21 +148,14 @@ def compute_generation_fused(
     scratch_maps, scratch_vals, scratch_cols
 ):
     """
-    Computes K_next = P * K_prev * P.T + D entirely in one pass using parallelism.
-    
-    Strategy:
-    For each row 'i' in the next generation:
-      1. Logic Row Merge: Identify parents (p1, p2). Logically merge K_prev[p1] and K_prev[p2].
-         This creates a stream of (ancestor_idx, weight).
-      2. Logic Column Scatter: For each (ancestor_idx, weight), look up the children 
-         of that ancestor in the next generation (using down_map).
-      3. Accumulate contributions into a thread-local dense row (SPA).
+    Computes K_next = P * K_prev * P.T + D entirely in one pass.
+    Uses int64 for indices to prevent overflow on massive matrices.
     """
         
     out_indptr = np.empty(n_next + 1, dtype=np.int64)
     out_indptr[0] = 0
         
-    row_nnzs = np.zeros(n_next, dtype=np.int32)
+    row_nnzs = np.zeros(n_next, dtype=np.int64)
     
     # --- PASS 1: COUNT NNZ ---
     for i in prange(n_next):
@@ -184,17 +164,11 @@ def compute_generation_fused(
         
         nnz_count = 0
         
-        # Identify parents in prev gen
         p1 = up_map[i, 0]
         p2 = up_map[i, 1]
         is_copy = (p2 == -2)
         
-        # We need to iterate over the UNION of parents' ancestors.
-        # To do this without sorting/merging full arrays, we just iterate both
-        # and use the SPA to deduplicate.
-        
-        # List of parents to process
-        parents_to_scan = np.empty(2, dtype=np.int32)
+        parents_to_scan = np.empty(2, dtype=np.int64)
         pt_count = 0
         if p1 >= 0: 
             parents_to_scan[pt_count] = p1
@@ -203,11 +177,6 @@ def compute_generation_fused(
             parents_to_scan[pt_count] = p2
             pt_count += 1
             
-        # Logic: Row_i(M) = 0.5*K[p1] + 0.5*K[p2]
-        # Then K_next[i, :] = M[i] * P.T
-        # Meaning: For every ancestor 'k' in parents' ancestry,
-        # add contributions to all children of 'k'.
-        
         for p_idx_i in range(pt_count):
             p_row = parents_to_scan[p_idx_i]
             start = K_prev_indptr[p_row]
@@ -215,21 +184,15 @@ def compute_generation_fused(
             
             for k_idx in range(start, end):
                 ancestor = K_prev_indices[k_idx]
-                # Ancestor 'ancestor' contributes.
-                # Who are the children of 'ancestor' in the current generation?
-                
                 d_start = down_indptr[ancestor]
                 d_end = down_indptr[ancestor+1]
                 
                 for d_k in range(d_start, d_end):
                     child = down_indices[d_k]
-                    
-                    # Check against 'i' to see if we visited this child for this row
                     if spa_map[child] != i:
                         spa_map[child] = i
                         nnz_count += 1
         
-        # Ensure diagonal is present
         if spa_map[i] != i:
             nnz_count += 1
             
@@ -256,7 +219,7 @@ def compute_generation_fused(
         tid = get_thread_id()
         spa_map = scratch_maps[tid]
         spa_values = scratch_vals[tid]
-        local_indices = scratch_cols[tid] # Pre-allocated buffer
+        local_indices = scratch_cols[tid] 
         
         local_ptr = 0
         
@@ -264,8 +227,7 @@ def compute_generation_fused(
         p2 = up_map[i, 1]
         is_copy = (p2 == -2)
         
-        # Re-run the logic
-        parents_to_scan = np.empty(2, dtype=np.int32)
+        parents_to_scan = np.empty(2, dtype=np.int64)
         pt_count = 0
         if p1 >= 0: 
             parents_to_scan[pt_count] = p1
@@ -277,9 +239,6 @@ def compute_generation_fused(
         for p_idx_i in range(pt_count):
             p_row = parents_to_scan[p_idx_i]
             
-            # Weight Logic
-            # If i is copy of p1: weight is 1.0 * K[p1]
-            # If i is child: weight is 0.5 * K[p1]
             scaler = 1.0 if is_copy else 0.5
             
             start = K_prev_indptr[p_row]
@@ -297,19 +256,13 @@ def compute_generation_fused(
                 for d_k in range(d_start, d_end):
                     child = down_indices[d_k]
                     
-                    # Determine incoming weight to child
-                    # If child is copy of ancestor: weight 1.0
-                    # If child is offspring of ancestor: weight 0.5
-                    # We check child's up_map
                     c_p1 = up_map[child, 0]
                     c_p2 = up_map[child, 1]
                     
                     child_scaler = 0.0
-                    if c_p2 == -2: # Child is copy
-                         # If child is copy, p1 must be ancestor
+                    if c_p2 == -2: 
                          if c_p1 == ancestor: child_scaler = 1.0
                     else:
-                        # Child is offspring
                         if c_p1 == ancestor: child_scaler += 0.5
                         if c_p2 == ancestor: child_scaler += 0.5
                     
@@ -324,15 +277,11 @@ def compute_generation_fused(
                         spa_values[child] += contribution
                         
         # Diagonal Correction
-        # phi_ii = 0.5 + 0.5 * phi_fm (if not founder/copy)
         diag_val = 0.0
-        
         if is_copy:
-            # Just the calculated value (which should match prev gen self)
             if spa_map[i] == i:
                 diag_val = spa_values[i]
             else:
-                # Should not happen for valid copy, but safeguard
                 diag_val = 0.5 
         else:
             phi_pp = 0.0
@@ -344,10 +293,6 @@ def compute_generation_fused(
             if spa_map[i] == i:
                 raw_val = spa_values[i]
                 
-            # The raw_val accumulated is 0.25*phi_ff + 0.25*phi_mm + 0.5*phi_fm
-            # We want 0.5 + 0.5*phi_fm
-            # So: 0.5 + raw_val - 0.25*phi_ff - 0.25*phi_mm
-            
             diag_val = 0.5 + raw_val - 0.25 * (phi_pp + phi_mm)
 
         output_diagonals[i] = diag_val
@@ -376,10 +321,10 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
         pro = cgeneakit.get_proband_ids(gen)
 
     n_total = len(gen)
-    father_indices = np.full(n_total, -1, dtype=np.int32)
-    mother_indices = np.full(n_total, -1, dtype=np.int32)
+    # Use int64 for indices/maps
+    father_indices = np.full(n_total, -1, dtype=np.int64)
+    mother_indices = np.full(n_total, -1, dtype=np.int64)
     
-    # Build lookup arrays once
     for individual in gen.values():
         if individual.father.ind:
             father_indices[individual.rank] = individual.father.rank
@@ -391,7 +336,7 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
     raw_vertex_cuts = cut_vertices(gen, pro)
     cuts_mapped = []
     for cut in raw_vertex_cuts:
-        mapped = np.array([gen[id].rank for id in cut], dtype=np.int32)
+        mapped = np.array([gen[id].rank for id in cut], dtype=np.int64)
         cuts_mapped.append(mapped)
 
     if not cuts_mapped:
@@ -404,7 +349,6 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
     current_indptr = np.arange(n_founders + 1, dtype=np.int64)
     current_self_kinships = np.full(n_founders, 0.5, dtype=np.float32)
     
-    # Allocate Scratch Space for Numba Threads
     n_threads = get_num_threads()
     for t in range(len(cuts_mapped) - 1):
         current_cut = cuts_mapped[t]
@@ -415,19 +359,17 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
         if verbose:
             print(f"Processing cut {t+1}/{len(cuts_mapped)-1}: {n_prev} -> {n_next} individuals")
 
-        prev_map = np.full(n_total, -1, dtype=np.int32)
-        prev_map[current_cut] = np.arange(n_prev, dtype=np.int32)
+        prev_map = np.full(n_total, -1, dtype=np.int64)
+        prev_map[current_cut] = np.arange(n_prev, dtype=np.int64)
 
         up_map, down_indices, down_indptr = build_maps(
             n_next, next_cut, prev_map, father_indices, mother_indices
         )
         
-        # Allocate scratch buffers for this generation
-        scratch_maps = np.full((n_threads, n_next), -1, dtype=np.int32)
+        scratch_maps = np.full((n_threads, n_next), -1, dtype=np.int64)
         scratch_vals = np.zeros((n_threads, n_next), dtype=np.float32)
-        scratch_cols = np.zeros((n_threads, n_next), dtype=np.int32)
+        scratch_cols = np.zeros((n_threads, n_next), dtype=np.int64)
         
-        # Call the optimized function
         next_indices, next_indptr, next_data, next_self = compute_generation_fused(
             n_next,
             up_map,
@@ -450,50 +392,27 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
     return csr_matrix((current_data, current_indices, current_indptr), 
                       shape=(n_next, n_next))
 
-def sparse_csr_to_dataframe_efficient(csr_mat, index, columns):
-    """Memory-efficient conversion of CSR matrix to sparse DataFrame"""
-    # Convert to CSC for efficient column access
-    csc_mat = csr_mat.tocsc()
-    
-    sparse_dict = {}
-    for col_idx in range(csc_mat.shape[1]):
-        col_data = csc_mat.getcol(col_idx).toarray().ravel()
-        sparse_dict[columns[col_idx]] = SparseArray(col_data, fill_value=0.0)
-    
-    return pd.DataFrame(sparse_dict, index=index)
-
 # ---------------------------------------------------------
-# Standard Interfaces (phi, phiMean, etc.)
+# Standard Interfaces
 # ---------------------------------------------------------
 
 def phi(gen, **kwargs):
-    """Compute kinship coefficients between probands
+    """Compute kinship coefficients between probands.
     
-    Calculates pairwise kinship coefficients (φ) measuring the probability
-    that two individuals share alleles identical by descent from common ancestors.
-
     Args:
-        gen (cgeneakit.Pedigree): Initialized genealogy object
-        pro (list, optional): Proband IDs to include (default: all)
-        verbose (bool): Print computation details if True (default: False)
-        compute (bool): Estimate memory if False (default: True)
-        sparse (bool): Return sparse matrix if True (default: False)
-
+        gen (cgeneakit.Pedigree): Initialized genealogy.
+        pro (list, optional): Proband IDs.
+        verbose (bool): Print details.
+        compute (bool): Estimate memory if False.
+        sparse (bool): Return sparse matrix computation.
+        raw (bool): If True, returns (csr_matrix, ids). If False, returns pd.DataFrame.
+                    Default is False (for compatibility).
+        to_distance (bool): If True and sparse=True, modifies matrix to be 1-phi 
+                            (distance) only for related pairs.
+    
     Returns:
-        pd.DataFrame | csc_matrix: Kinship matrix with:
-            - Rows/columns: Proband IDs
-            - Values: Kinship coefficients (0-0.5+)
-
-    Examples:
-        >>> import geneakit as gen
-        >>> from geneakit import geneaJi
-        >>> ped = gen.genealogy(geneaJi)
-        >>> kin_mat = gen.phi(ped)
-        >>> print(kin_mat)
-                  1         2         29
-        1   0.591797  0.371094  0.072266
-        2   0.371094  0.591797  0.072266
-        29  0.072266  0.072266  0.535156
+        pd.DataFrame: If raw=False (default).
+        tuple: (scipy.sparse.csr_matrix, list) If raw=True.
     """
     pro = kwargs.get('pro', None)
     if pro is None:
@@ -501,11 +420,12 @@ def phi(gen, **kwargs):
     verbose = kwargs.get('verbose', False)
     compute = kwargs.get('compute', True)
     sparse = kwargs.get('sparse', False)
+    raw = kwargs.get('raw', False)
+    to_distance = kwargs.get('to_distance', False)
     
     if not compute:
         required_memory = cgeneakit.get_required_memory_for_kinships(gen, pro)
-        required_memory = round(required_memory, 2)
-        print(f'You will require at least {required_memory} GB of RAM.')
+        print(f'You will require at least {round(required_memory, 2)} GB of RAM.')
         return
     
     if verbose:
@@ -513,12 +433,27 @@ def phi(gen, **kwargs):
         
     if sparse:
         kinship_matrix = compute_kinships_sparse(gen, pro=pro, verbose=verbose)
-        kinship_matrix = sparse_csr_to_dataframe_efficient(
+        
+        # Distance transformation for UMAP/PCoA (Sparse only)
+        if to_distance:
+            if verbose: print("Transforming non-zero kinships to distances (1-phi)...")
+            kinship_matrix.data = 1.0 - kinship_matrix.data
+
+        if raw:
+            if verbose:
+                print(f'Elapsed time: {round(time.time() - begin, 2)} seconds')
+            # Return raw matrix + ids for massive datasets
+            return kinship_matrix, pro
+            
+        # Default: Convert to DataFrame (May be memory intensive for massive data)
+        kinship_matrix = pd.DataFrame.sparse.from_spmatrix(
             kinship_matrix, index=pro, columns=pro
         )
 
     else:
         cmatrix = cgeneakit.compute_kinships(gen, pro, verbose)
+        if to_distance:
+            cmatrix = 1.0 - cmatrix
         kinship_matrix = pd.DataFrame(cmatrix, index=pro, columns=pro, copy=False)
     
     if verbose:
@@ -548,8 +483,13 @@ def phiMean(kinship_matrix):
         total = kinship_matrix.sum()
         diag_sum = kinship_matrix.diagonal().sum()
     else:
+        # Handle Dense Matrix or DataFrame
         total = kinship_matrix.sum().sum()
-        diag_sum = np.diag(kinship_matrix).sum()
+        # np.diag works on dense arrays; if DataFrame, need to ensure access
+        if isinstance(kinship_matrix, pd.DataFrame):
+            diag_sum = np.diag(kinship_matrix.values).sum()
+        else:
+            diag_sum = np.diag(kinship_matrix).sum()
         
     n = kinship_matrix.shape[0]
     return (total - diag_sum) / (n**2 - n)
@@ -577,13 +517,35 @@ def phiOver(phiMatrix, threshold):
         0     2     1  0.371094
     """
     pairs = []
-    for i in range(phiMatrix.shape[0]):
-        for j in range(i):
-            if phiMatrix.iloc[i, j] > threshold:
+    # If raw sparse matrix, this iteration is inefficient, but standard for small data
+    # For large sparse data, iterating non-zero elements is better
+    if issparse(phiMatrix):
+        # Optimize for sparse
+        cx = phiMatrix.tocoo()
+        for i, j, v in zip(cx.row, cx.col, cx.data):
+            if i > j and v > threshold: # Lower triangle
+                # NOTE: We don't have labels here unless passed separately
+                # Assuming simple indices if raw matrix passed
                 pairs.append({
-                    'pro1': phiMatrix.index[i],
-                    'pro2': phiMatrix.columns[j],
-                    'kinship': phiMatrix.iloc[i, j]
+                    'pro1': i, 'pro2': j, 'kinship': v
+                })
+        return pd.DataFrame(pairs)
+
+    # DataFrame / Dense Logic
+    rows = phiMatrix.shape[0]
+    cols = phiMatrix.shape[1]
+    
+    # Slow iterative approach (legacy compatible)
+    for i in range(rows):
+        for j in range(i):
+            val = phiMatrix.iloc[i, j] if isinstance(phiMatrix, pd.DataFrame) else phiMatrix[i, j]
+            if val > threshold:
+                p1 = phiMatrix.index[i] if isinstance(phiMatrix, pd.DataFrame) else i
+                p2 = phiMatrix.columns[j] if isinstance(phiMatrix, pd.DataFrame) else j
+                pairs.append({
+                    'pro1': p1,
+                    'pro2': p2,
+                    'kinship': val
                 })
     return pd.DataFrame(pairs)
 
@@ -609,18 +571,18 @@ def phiCI(phiMatrix, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
         Mean  0.000886  0.000924  0.001388  0.001442
     """
     phi_array = phiMatrix.to_numpy() if isinstance(phiMatrix, pd.DataFrame) else phiMatrix
+    # Note: If phiMatrix is sparse CSR, to_numpy() might crash if too big.
+    if issparse(phiMatrix):
+        phi_array = phiMatrix.toarray() # Warning: Densifies
+
     n = phi_array.shape[0]
-    
-    # Prepare indices as input data for bootstrap resampling
     data = (np.arange(n),)
     
-    # Define statistic function to compute mean of elements < 0.5 in resampled submatrix
     def statistic(indices):
         submatrix = phi_array[indices][:, indices]
         elements_less_than_half = submatrix[submatrix < 0.5]
         return np.mean(elements_less_than_half) if elements_less_than_half.size > 0 else np.nan
     
-    # Pair probabilities into confidence intervals
     sorted_prob = sorted(prob)
     quantiles = {}
     i, j = 0, len(sorted_prob) - 1
@@ -630,7 +592,6 @@ def phiCI(phiMatrix, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
         upper = sorted_prob[j]
         confidence_level = upper - lower
         
-        # Compute confidence interval using bootstrap
         res = bootstrap(
             data,
             statistic,
@@ -644,14 +605,8 @@ def phiCI(phiMatrix, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
         i += 1
         j -= 1
     
-    # Compile results in original probability order
     results = [quantiles.get(p, np.nan) for p in prob]
-    
-    return pd.DataFrame(
-        [results],
-        columns=[f"{p*100}%" for p in prob],
-        index=["Mean"]
-    )
+    return pd.DataFrame([results], columns=[f"{p*100}%" for p in prob], index=["Mean"])
 
 def f(gen, **kwargs):
     """Calculate inbreeding coefficients (F) for probands
@@ -705,16 +660,12 @@ def fCI(vectF, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
     """
     f_array = vectF.to_numpy() if isinstance(vectF, pd.DataFrame) else np.array(vectF)
     n = f_array.shape[0]
-    
-    # Prepare indices as input data for bootstrap resampling
     data = (np.arange(n),)
     
-    # Define statistic function to compute mean of elements < 0.5 in resampled submatrix
     def statistic(indices):
         submatrix = f_array[indices]
         return np.mean(submatrix)
     
-    # Pair probabilities into confidence intervals
     sorted_prob = sorted(prob)
     quantiles = {}
     i, j = 0, len(sorted_prob) - 1
@@ -724,7 +675,6 @@ def fCI(vectF, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
         upper = sorted_prob[j]
         confidence_level = upper - lower
         
-        # Compute confidence interval using bootstrap
         res = bootstrap(
             data,
             statistic,
@@ -738,14 +688,8 @@ def fCI(vectF, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
         i += 1
         j -= 1
     
-    # Compile results in original probability order
     results = [quantiles.get(p, np.nan) for p in prob]
-    
-    return pd.DataFrame(
-        [results],
-        columns=[f"{p*100}%" for p in prob],
-        index=["Mean"]
-    )
+    return pd.DataFrame([results], columns=[f"{p*100}%" for p in prob], index=["Mean"])
 
 def gc(pedigree, **kwargs):
     """Compute genetic contribution of ancestors to probands
