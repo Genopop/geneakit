@@ -38,8 +38,6 @@ std::vector<int> get_previous_generation(Pedigree<> &pedigree,
         }
     }
     std::vector<int> previous_generation(set.begin(), set.end());
-    // Sort the individuals by ID
-    sort(previous_generation.begin(), previous_generation.end());
     return previous_generation;
 }
 
@@ -94,7 +92,6 @@ std::vector<std::vector<int>> copy_top_down(
     for (const int id : generations[0]) {
         ids.push_back(id);
     }
-    sort(ids.begin(), ids.end());
     top_down.push_back(ids);
     for (int i = 0; i < (int) generations.size() - 1; i++) {
         std::vector<int> next_generation;
