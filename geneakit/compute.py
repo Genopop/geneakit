@@ -78,6 +78,10 @@ def cut_vertices(pedigree, proband_ids):
 
 @njit(cache=True)
 def build_maps(n_next, next_cut, prev_map, father_indices, mother_indices):
+    """
+    Constructs mapping structures.
+    Uses int64 to support large pedigrees.
+    """
     # UP MAP: n_next x 2
     up_map = np.full((n_next, 2), -1, dtype=np.int64)
     
@@ -148,7 +152,7 @@ def compute_generation_fused(
     scratch_maps, scratch_vals, scratch_cols
 ):
     """
-    Computes K_next = P * K_prev * P.T + D entirely in one pass.
+    Computes K_next = P * K_prev * P.T + D entirely in one pass (Sparse Output).
     Uses int64 for indices to prevent overflow on massive matrices.
     """
         
@@ -316,7 +320,95 @@ def compute_generation_fused(
             
     return out_indices, out_indptr, out_data, output_diagonals
 
-def compute_kinships_sparse(gen, pro=None, verbose=False):
+@njit(parallel=True, cache=True)
+def compute_last_generation_dense(
+    n_next,
+    up_map,
+    down_indices, down_indptr,
+    K_prev_indices, K_prev_indptr, K_prev_data,
+    current_self_kinships,
+    scratch_vals
+):
+    """
+    Computes K_next directly into a Dense Matrix (float32).
+    Used when dense_output=True to avoid sparse construction overhead.
+    """
+    # Allocate Dense Output Matrix
+    K_next = np.zeros((n_next, n_next), dtype=np.float32)
+    
+    for i in prange(n_next):
+        tid = get_thread_id()
+        # Use thread-local scratch buffer for accumulation
+        spa_values = scratch_vals[tid]
+        
+        p1 = up_map[i, 0]
+        p2 = up_map[i, 1]
+        is_copy = (p2 == -2)
+        
+        parents_to_scan = np.empty(2, dtype=np.int64)
+        pt_count = 0
+        if p1 >= 0: 
+            parents_to_scan[pt_count] = p1
+            pt_count += 1
+        if not is_copy and p2 >= 0:
+            parents_to_scan[pt_count] = p2
+            pt_count += 1
+            
+        for p_idx_i in range(pt_count):
+            p_row = parents_to_scan[p_idx_i]
+            scaler = 1.0 if is_copy else 0.5
+            
+            start = K_prev_indptr[p_row]
+            end = K_prev_indptr[p_row+1]
+            
+            for k_idx in range(start, end):
+                ancestor = K_prev_indices[k_idx]
+                kinship_val = K_prev_data[k_idx]
+                
+                val_to_scatter = scaler * kinship_val
+                
+                d_start = down_indptr[ancestor]
+                d_end = down_indptr[ancestor+1]
+                
+                for d_k in range(d_start, d_end):
+                    child = down_indices[d_k]
+                    
+                    c_p1 = up_map[child, 0]
+                    c_p2 = up_map[child, 1]
+                    
+                    child_scaler = 0.0
+                    if c_p2 == -2: 
+                         if c_p1 == ancestor: child_scaler = 1.0
+                    else:
+                        if c_p1 == ancestor: child_scaler += 0.5
+                        if c_p2 == ancestor: child_scaler += 0.5
+                    
+                    contribution = val_to_scatter * child_scaler
+                    spa_values[child] += contribution
+                        
+        # Diagonal Correction
+        diag_val = 0.0
+        if is_copy:
+            diag_val = spa_values[i]
+        else:
+            phi_pp = 0.0
+            phi_mm = 0.0
+            if p1 >= 0: phi_pp = current_self_kinships[p1]
+            if p2 >= 0: phi_mm = current_self_kinships[p2]
+            
+            raw_val = spa_values[i]
+            diag_val = 0.5 + raw_val - 0.25 * (phi_pp + phi_mm)
+
+        spa_values[i] = diag_val
+        
+        # Copy to global dense matrix and reset scratch
+        for col in range(n_next):
+            K_next[i, col] = spa_values[col]
+            spa_values[col] = 0.0
+            
+    return K_next
+
+def compute_kinships_sparse(gen, pro=None, dense_output=False, verbose=False):
     if pro is None:
         pro = cgeneakit.get_proband_ids(gen)
 
@@ -340,7 +432,10 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
         cuts_mapped.append(mapped)
 
     if not cuts_mapped:
-        return csc_matrix((0, 0), dtype=np.float32)
+        empty_ret = csr_matrix((0, 0), dtype=np.float32)
+        if dense_output:
+            return empty_ret.toarray()
+        return empty_ret
 
     # Initialize Founders
     n_founders = len(cuts_mapped[0])
@@ -350,6 +445,14 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
     current_self_kinships = np.full(n_founders, 0.5, dtype=np.float32)
     
     n_threads = get_num_threads()
+    
+    # If requesting dense output, and only 1 cut (just founders?), we must handle it.
+    if len(cuts_mapped) == 1 and dense_output:
+         # Return identity matrix * 0.5
+         mat = np.zeros((n_founders, n_founders), dtype=np.float32)
+         np.fill_diagonal(mat, 0.5)
+         return mat
+
     for t in range(len(cuts_mapped) - 1):
         current_cut = cuts_mapped[t]
         next_cut = cuts_mapped[t + 1]
@@ -366,28 +469,53 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
             n_next, next_cut, prev_map, father_indices, mother_indices
         )
         
-        scratch_maps = np.full((n_threads, n_next), -1, dtype=np.int64)
-        scratch_vals = np.zeros((n_threads, n_next), dtype=np.float32)
-        scratch_cols = np.zeros((n_threads, n_next), dtype=np.int64)
+        # Check if this is the last iteration and if dense output is requested
+        is_last_step = (t == len(cuts_mapped) - 2)
         
-        next_indices, next_indptr, next_data, next_self = compute_generation_fused(
-            n_next,
-            up_map,
-            down_indices, down_indptr,
-            current_indices, current_indptr, current_data,
-            current_self_kinships,
-            scratch_maps, scratch_vals, scratch_cols
-        )
-        
-        current_data = next_data
-        current_indices = next_indices
-        current_indptr = next_indptr
-        current_self_kinships = next_self
-        
-        del up_map, down_indices, down_indptr, next_indices, next_data, next_self
-        del scratch_maps, scratch_vals, scratch_cols
-        if t % 5 == 0:
+        if is_last_step and dense_output:
+            if verbose: print("Computing final generation directly to dense matrix...")
+            # Allocate scratch for dense (just values)
+            scratch_vals = np.zeros((n_threads, n_next), dtype=np.float32)
+            
+            dense_result = compute_last_generation_dense(
+                n_next,
+                up_map,
+                down_indices, down_indptr,
+                current_indices, current_indptr, current_data,
+                current_self_kinships,
+                scratch_vals
+            )
+            # Clean up
+            del up_map, down_indices, down_indptr
+            del scratch_vals
             gc_.collect()
+            
+            return dense_result
+            
+        else:
+            # Standard Sparse Step
+            scratch_maps = np.full((n_threads, n_next), -1, dtype=np.int64)
+            scratch_vals = np.zeros((n_threads, n_next), dtype=np.float32)
+            scratch_cols = np.zeros((n_threads, n_next), dtype=np.int64)
+            
+            next_indices, next_indptr, next_data, next_self = compute_generation_fused(
+                n_next,
+                up_map,
+                down_indices, down_indptr,
+                current_indices, current_indptr, current_data,
+                current_self_kinships,
+                scratch_maps, scratch_vals, scratch_cols
+            )
+            
+            current_data = next_data
+            current_indices = next_indices
+            current_indptr = next_indptr
+            current_self_kinships = next_self
+            
+            del up_map, down_indices, down_indptr, next_indices, next_data, next_self
+            del scratch_maps, scratch_vals, scratch_cols
+            if t % 5 == 0:
+                gc_.collect()
 
     return csr_matrix((current_data, current_indices, current_indptr), 
                       shape=(n_next, n_next))
@@ -404,15 +532,14 @@ def phi(gen, **kwargs):
         pro (list, optional): Proband IDs.
         verbose (bool): Print details.
         compute (bool): Estimate memory if False.
-        sparse (bool): Return sparse matrix computation.
-        raw (bool): If True, returns (csr_matrix, ids). If False, returns pd.DataFrame.
-                    Default is False (for compatibility).
-        to_distance (bool): If True and sparse=True, modifies matrix to be 1-phi 
-                            (distance) only for related pairs.
+        sparse (bool): Use sparse computation algorithm (graph cuts).
+        dense_output (bool): If True and sparse=True, computes the final matrix 
+                             directly as a dense array. Faster for dense outputs.
+        raw (bool): If True, returns (matrix, ids). If False, returns pd.DataFrame.
     
     Returns:
-        pd.DataFrame: If raw=False (default).
-        tuple: (scipy.sparse.csr_matrix, list) If raw=True.
+        pd.DataFrame: Default.
+        tuple: (matrix, list) If raw=True.
     """
     pro = kwargs.get('pro', None)
     if pro is None:
@@ -421,7 +548,7 @@ def phi(gen, **kwargs):
     compute = kwargs.get('compute', True)
     sparse = kwargs.get('sparse', False)
     raw = kwargs.get('raw', False)
-    to_distance = kwargs.get('to_distance', False)
+    dense_output = kwargs.get('dense_output', False)
     
     if not compute:
         required_memory = cgeneakit.get_required_memory_for_kinships(gen, pro)
@@ -432,28 +559,25 @@ def phi(gen, **kwargs):
         begin = time.time()
         
     if sparse:
-        kinship_matrix = compute_kinships_sparse(gen, pro=pro, verbose=verbose)
+        kinship_matrix = compute_kinships_sparse(gen, pro=pro, dense_output=dense_output, verbose=verbose)
         
-        # Distance transformation for UMAP/PCoA (Sparse only)
-        if to_distance:
-            if verbose: print("Transforming non-zero kinships to distances (1-phi)...")
-            kinship_matrix.data = 1.0 - kinship_matrix.data
-
         if raw:
             if verbose:
                 print(f'Elapsed time: {round(time.time() - begin, 2)} seconds')
-            # Return raw matrix + ids for massive datasets
+            # Return raw matrix (dense ndarray or sparse csr) + ids
             return kinship_matrix, pro
             
-        # Default: Convert to DataFrame (May be memory intensive for massive data)
-        kinship_matrix = pd.DataFrame.sparse.from_spmatrix(
-            kinship_matrix, index=pro, columns=pro
-        )
+        if dense_output:
+            # Result is numpy array
+            kinship_matrix = pd.DataFrame(kinship_matrix, index=pro, columns=pro)
+        else:
+            # Result is CSR matrix -> Sparse DataFrame
+            kinship_matrix = pd.DataFrame.sparse.from_spmatrix(
+                kinship_matrix, index=pro, columns=pro
+            )
 
     else:
         cmatrix = cgeneakit.compute_kinships(gen, pro, verbose)
-        if to_distance:
-            cmatrix = 1.0 - cmatrix
         kinship_matrix = pd.DataFrame(cmatrix, index=pro, columns=pro, copy=False)
     
     if verbose:
@@ -479,7 +603,8 @@ def phiMean(kinship_matrix):
         >>> print(f"Average kinship: {mean_phi:.4f}")
         Average kinship: 0.1719
     """
-    if isinstance(kinship_matrix, csc_matrix):
+    if issparse(kinship_matrix):
+        # Handle Generic Sparse Matrix (CSR or CSC)
         total = kinship_matrix.sum()
         diag_sum = kinship_matrix.diagonal().sum()
     else:
@@ -517,15 +642,11 @@ def phiOver(phiMatrix, threshold):
         0     2     1  0.371094
     """
     pairs = []
-    # If raw sparse matrix, this iteration is inefficient, but standard for small data
-    # For large sparse data, iterating non-zero elements is better
     if issparse(phiMatrix):
         # Optimize for sparse
         cx = phiMatrix.tocoo()
         for i, j, v in zip(cx.row, cx.col, cx.data):
             if i > j and v > threshold: # Lower triangle
-                # NOTE: We don't have labels here unless passed separately
-                # Assuming simple indices if raw matrix passed
                 pairs.append({
                     'pro1': i, 'pro2': j, 'kinship': v
                 })
@@ -535,7 +656,6 @@ def phiOver(phiMatrix, threshold):
     rows = phiMatrix.shape[0]
     cols = phiMatrix.shape[1]
     
-    # Slow iterative approach (legacy compatible)
     for i in range(rows):
         for j in range(i):
             val = phiMatrix.iloc[i, j] if isinstance(phiMatrix, pd.DataFrame) else phiMatrix[i, j]
@@ -571,9 +691,8 @@ def phiCI(phiMatrix, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
         Mean  0.000886  0.000924  0.001388  0.001442
     """
     phi_array = phiMatrix.to_numpy() if isinstance(phiMatrix, pd.DataFrame) else phiMatrix
-    # Note: If phiMatrix is sparse CSR, to_numpy() might crash if too big.
     if issparse(phiMatrix):
-        phi_array = phiMatrix.toarray() # Warning: Densifies
+        phi_array = phiMatrix.toarray() 
 
     n = phi_array.shape[0]
     data = (np.arange(n),)
