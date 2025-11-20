@@ -3,6 +3,7 @@ import time
 import cgeneakit
 import numpy as np
 import pandas as pd
+from pandas.arrays import SparseArray
 from numba import njit, prange, get_num_threads, get_thread_id
 from scipy.sparse import csr_matrix, csc_matrix
 from scipy.stats import bootstrap
@@ -449,6 +450,18 @@ def compute_kinships_sparse(gen, pro=None, verbose=False):
     return csr_matrix((current_data, current_indices, current_indptr), 
                       shape=(n_next, n_next))
 
+def sparse_csr_to_dataframe_efficient(csr_mat, index, columns):
+    """Memory-efficient conversion of CSR matrix to sparse DataFrame"""
+    # Convert to CSC for efficient column access
+    csc_mat = csr_mat.tocsc()
+    
+    sparse_dict = {}
+    for col_idx in range(csc_mat.shape[1]):
+        col_data = csc_mat.getcol(col_idx).toarray().ravel()
+        sparse_dict[columns[col_idx]] = SparseArray(col_data, fill_value=0.0)
+    
+    return pd.DataFrame(sparse_dict, index=index)
+
 # ---------------------------------------------------------
 # Standard Interfaces (phi, phiMean, etc.)
 # ---------------------------------------------------------
@@ -500,8 +513,10 @@ def phi(gen, **kwargs):
         
     if sparse:
         kinship_matrix = compute_kinships_sparse(gen, pro=pro, verbose=verbose)
-        kinship_matrix = pd.DataFrame.sparse.from_spmatrix(
-            kinship_matrix, index=pro, columns=pro)
+        kinship_matrix = sparse_csr_to_dataframe_efficient(
+            kinship_matrix, index=pro, columns=pro
+        )
+
     else:
         cmatrix = cgeneakit.compute_kinships(gen, pro, verbose)
         kinship_matrix = pd.DataFrame(cmatrix, index=pro, columns=pro, copy=False)
