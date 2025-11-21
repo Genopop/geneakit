@@ -601,9 +601,8 @@ Matrix<int> get_mrca_meioses(Pedigree<> &pedigree,
         ancestor_ids = get_mrca_ids(pedigree, proband_ids);
     }
     Matrix<int> meioses_matrix(proband_ids.size(), ancestor_ids.size());
-    #pragma omp parallel for
+    #pragma omp parallel for collapse(2)
     for (int i = 0; i < (int) proband_ids.size(); i++) {
-        #pragma omp parallel for
         for (int j = 0; j < (int) ancestor_ids.size(); j++) {
             const int proband_id = proband_ids[i];
             const int ancestor_id = ancestor_ids[j];

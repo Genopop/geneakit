@@ -129,19 +129,24 @@ NB_MODULE(cgeneakit, m) {
         "Returns the lineages of individuals.");
 
     m.def("output_pedigree", [] (Pedigree<> &pedigree) {
-            Matrix<int> output = output_pedigree(pedigree);
-            int *data = output.data();
-            nb::capsule owner(data, [](void *data) noexcept {
-                delete[] (int *) data;
+        Matrix<int> output = output_pedigree(pedigree);
+        size_t rows = output.rows();
+        size_t cols = output.cols();
+        int *data = output.data();
+        
+        // Move the Matrix into the capsule to keep it alive
+        nb::capsule owner(new Matrix<int>(std::move(output)), 
+            [](void *ptr) noexcept {
+                delete static_cast<Matrix<int>*>(ptr);
             });
-            return nb::ndarray<nb::numpy, int, nb::ndim<2>>(
-                data,
-                {output.rows(), output.cols()},
-                owner
-            );
-        },
-        nb::rv_policy::take_ownership,
-        "Outputs a pedigree to a vector of vectors.");
+        
+        return nb::ndarray<nb::numpy, int, nb::ndim<2>>(
+            data,
+            {rows, cols},
+            owner
+        );
+    },
+    "Outputs a pedigree to a vector of vectors.");
 
     m.def("get_proband_ids", &get_proband_ids,
         "Returns the proband IDs of a pedigree.");
@@ -190,17 +195,21 @@ NB_MODULE(cgeneakit, m) {
             Matrix<int> meioses = get_mrca_meioses(
                 pedigree, proband_ids, ancestor_ids
             );
+            size_t rows = meioses.rows();
+            size_t cols = meioses.cols();
             int *data = meioses.data();
-            nb::capsule owner(data, [](void *data) noexcept {
-                delete[] (int *) data;
-            });
+            
+            nb::capsule owner(new Matrix<int>(std::move(meioses)), 
+                [](void *ptr) noexcept {
+                    delete static_cast<Matrix<int>*>(ptr);
+                });
+            
             return nb::ndarray<nb::numpy, int, nb::ndim<2>>(
                 data,
-                {meioses.rows(), meioses.cols()},
+                {rows, cols},
                 owner
             );
         },
-        nb::rv_policy::take_ownership,
         "Returns the number of meioses between probands and MRCAs.");
 
     m.def("get_number_of_individuals", &get_number_of_individuals,
@@ -234,63 +243,75 @@ NB_MODULE(cgeneakit, m) {
         "Returns the completeness of the pedigree.");
 
     m.def("compute_individual_completeness", [] (Pedigree<> &pedigree,
-        std::vector<int> proband_ids) {
-            Matrix<double> completeness_matrix =
-                compute_individual_completeness(pedigree, proband_ids);
-            double *data = completeness_matrix.data();
-            nb::capsule owner(data, [](void *data) noexcept {
-                delete[] (double *) data;
+    std::vector<int> proband_ids) {
+        Matrix<double> completeness_matrix =
+            compute_individual_completeness(pedigree, proband_ids);
+        size_t rows = completeness_matrix.rows();
+        size_t cols = completeness_matrix.cols();
+        double *data = completeness_matrix.data();
+        
+        nb::capsule owner(new Matrix<double>(std::move(completeness_matrix)), 
+            [](void *ptr) noexcept {
+                delete static_cast<Matrix<double>*>(ptr);
             });
-            return nb::ndarray<nb::numpy, double, nb::ndim<2>>(
-                data,
-                {completeness_matrix.rows(), completeness_matrix.cols()},
-                owner
-            );
-        },
-        nb::rv_policy::take_ownership,
-        "Returns the completeness of the pedigree.");
+        
+        return nb::ndarray<nb::numpy, double, nb::ndim<2>>(
+            data,
+            {rows, cols},
+            owner
+        );
+    },
+    "Returns the completeness of the pedigree.");
 
     m.def("compute_mean_implex", &compute_mean_implex,
         "Returns the mean implex of the pedigree per generation.");
 
     m.def("compute_individual_implex", [] (Pedigree<> &pedigree,
-        std::vector<int> proband_ids, bool only_new_ancestors) {
-            Matrix<double> implex_matrix = compute_individual_implex(
-                pedigree, proband_ids, only_new_ancestors
-            );
-            double *data = implex_matrix.data();
-            nb::capsule owner(data, [](void *data) noexcept {
-                delete[] (double *) data;
+    std::vector<int> proband_ids, bool only_new_ancestors) {
+        Matrix<double> implex_matrix = compute_individual_implex(
+            pedigree, proband_ids, only_new_ancestors
+        );
+        size_t rows = implex_matrix.rows();
+        size_t cols = implex_matrix.cols();
+        double *data = implex_matrix.data();
+        
+        nb::capsule owner(new Matrix<double>(std::move(implex_matrix)), 
+            [](void *ptr) noexcept {
+                delete static_cast<Matrix<double>*>(ptr);
             });
-            return nb::ndarray<nb::numpy, double, nb::ndim<2>>(
-                data,
-                {implex_matrix.rows(), implex_matrix.cols()},
-                owner
-            );
-        },
-        nb::rv_policy::take_ownership,
-        "Returns the implex of the pedigree.");
+        
+        return nb::ndarray<nb::numpy, double, nb::ndim<2>>(
+            data,
+            {rows, cols},
+            owner
+        );
+    },
+    "Returns the implex of the pedigree.");
 
     m.def("count_total_occurrences", &count_total_occurrences,
         "Returns the total occurrences of ancestors in the probands' pedigrees.");
 
     m.def("count_individual_occurrences", [] (Pedigree<> &pedigree,
-        std::vector<int> ancestor_ids, std::vector<int> proband_ids) {
-            Matrix<int> occurrences = count_individual_occurrences(
-                pedigree, ancestor_ids, proband_ids
-            );
-            int *data = occurrences.data();
-            nb::capsule owner(data, [](void *data) noexcept {
-                delete[] (int *) data;
+    std::vector<int> ancestor_ids, std::vector<int> proband_ids) {
+        Matrix<int> occurrences = count_individual_occurrences(
+            pedigree, ancestor_ids, proband_ids
+        );
+        size_t rows = occurrences.rows();
+        size_t cols = occurrences.cols();
+        int *data = occurrences.data();
+        
+        nb::capsule owner(new Matrix<int>(std::move(occurrences)), 
+            [](void *ptr) noexcept {
+                delete static_cast<Matrix<int>*>(ptr);
             });
-            return nb::ndarray<nb::numpy, int, nb::ndim<2>>(
-                data,
-                {occurrences.rows(), occurrences.cols()},
-                owner
-            );
-        },
-        nb::rv_policy::take_ownership,
-        "Returns the occurrences of ancestors in the probands' pedigrees.");
+        
+        return nb::ndarray<nb::numpy, int, nb::ndim<2>>(
+            data,
+            {rows, cols},
+            owner
+        );
+    },
+    "Returns the occurrences of ancestors in the probands' pedigrees.");
 
     m.def("get_ancestor_path_lengths", &get_ancestor_path_lengths,
         "Returns the lengths of the paths from an individual to an ancestor.");
@@ -306,22 +327,26 @@ NB_MODULE(cgeneakit, m) {
         "Returns the required memory for kinship calculations.");
 
     m.def("compute_kinships", [] (Pedigree<> &pedigree,
-        std::vector<int> proband_ids, bool verbose) {
-            Matrix<double> kinship_matrix = compute_kinships(
-                pedigree, proband_ids, verbose
-            );
-            double *data = kinship_matrix.data();
-            nb::capsule owner(data, [](void *data) noexcept {
-                delete[] (double *) data;
+    std::vector<int> proband_ids, bool verbose) {
+        Matrix<double> kinship_matrix = compute_kinships(
+            pedigree, proband_ids, verbose
+        );
+        size_t rows = kinship_matrix.rows();
+        size_t cols = kinship_matrix.cols();
+        double *data = kinship_matrix.data();
+        
+        nb::capsule owner(new Matrix<double>(std::move(kinship_matrix)), 
+            [](void *ptr) noexcept {
+                delete static_cast<Matrix<double>*>(ptr);
             });
-            return nb::ndarray<nb::numpy, double, nb::ndim<2>>(
-                data,
-                {kinship_matrix.rows(), kinship_matrix.cols()},
-                owner
-            );
-        },
-        nb::rv_policy::take_ownership,
-        "Returns the kinship matrix of a pedigree.");
+        
+        return nb::ndarray<nb::numpy, double, nb::ndim<2>>(
+            data,
+            {rows, cols},
+            owner
+        );
+    },
+    "Returns the kinship matrix of a pedigree.");
 
     m.def("compute_inbreedings", &compute_inbreedings,
         "Returns the inbreeding coefficients of probands.");
@@ -330,20 +355,24 @@ NB_MODULE(cgeneakit, m) {
         "Returns the mean kinship coefficient of a kinship matrix.");
 
     m.def("compute_genetic_contributions", [] (Pedigree<> &pedigree,
-        std::vector<int> proband_ids, std::vector<int> ancestor_ids) {
-            Matrix<double> contribution_matrix = compute_genetic_contributions(
-                pedigree, proband_ids, ancestor_ids
-            );
-            double *data = contribution_matrix.data();
-            nb::capsule owner(data, [](void *data) noexcept {
-                delete[] (double *) data;
+    std::vector<int> proband_ids, std::vector<int> ancestor_ids) {
+        Matrix<double> contribution_matrix = compute_genetic_contributions(
+            pedigree, proband_ids, ancestor_ids
+        );
+        size_t rows = contribution_matrix.rows();
+        size_t cols = contribution_matrix.cols();
+        double *data = contribution_matrix.data();
+        
+        nb::capsule owner(new Matrix<double>(std::move(contribution_matrix)), 
+            [](void *ptr) noexcept {
+                delete static_cast<Matrix<double>*>(ptr);
             });
-            return nb::ndarray<nb::numpy, double, nb::ndim<2>>(
-                data,
-                {contribution_matrix.rows(), contribution_matrix.cols()},
-                owner
-            );
-        },
-        nb::rv_policy::take_ownership,
-        "Returns the genetic contributions of ancestors.");
+        
+        return nb::ndarray<nb::numpy, double, nb::ndim<2>>(
+            data,
+            {rows, cols},
+            owner
+        );
+    },
+    "Returns the genetic contributions of ancestors.");
 }
