@@ -25,30 +25,26 @@ SOFTWARE.
 #include "../include/compute.hpp"
 
 // Returns the previous generation of a set of individuals.
-std::vector<int> get_previous_generation(Pedigree<> &pedigree,
-    std::vector<int> &ids) {
-    phmap::flat_hash_set<int> set;
+phmap::flat_hash_set<int> get_previous_generation(Pedigree<> &pedigree,
+    phmap::flat_hash_set<int> &ids) {
+    phmap::flat_hash_set<int> previous_generation;
     for (const int id : ids) {
         Individual<> *individual = pedigree.individuals.at(id);
         if (individual->father) {
-            set.insert(individual->father->id);
+            previous_generation.insert(individual->father->id);
         }
         if (individual->mother) {
-            set.insert(individual->mother->id);
+            previous_generation.insert(individual->mother->id);
         }
     }
-    std::vector<int> previous_generation(set.begin(), set.end());
     return previous_generation;
 }
 
 // Go from the bottom to the top of the pedigree
-std::vector<std::vector<int>> get_generations(Pedigree<> &pedigree,
+std::vector<phmap::flat_hash_set<int>> get_generations(Pedigree<> &pedigree,
     std::vector<int> &proband_ids) {
-    std::vector<std::vector<int>> generations;
-    std::vector<int> generation;
-    for (const int id : proband_ids) {
-        generation.push_back(id);
-    }
+    std::vector<phmap::flat_hash_set<int>> generations;
+    phmap::flat_hash_set<int> generation(proband_ids.begin(), proband_ids.end());
     while (!generation.empty()) {
         generations.push_back(generation);
         generation = get_previous_generation(pedigree, generation);
@@ -57,25 +53,19 @@ std::vector<std::vector<int>> get_generations(Pedigree<> &pedigree,
 }
 
 // Drag the individuals up
-std::vector<std::vector<int>> copy_bottom_up(
-    std::vector<std::vector<int>> &generations) {
-    std::vector<std::vector<int>> bottom_up;
-    std::vector<int> ids;
-    for (const int id : generations[0]) {
-        ids.push_back(id);
-    }
+std::vector<phmap::flat_hash_set<int>> copy_bottom_up(
+    std::vector<phmap::flat_hash_set<int>> &generations) {
+    std::vector<phmap::flat_hash_set<int>> bottom_up;
+    phmap::flat_hash_set<int> ids(generations[0].begin(), generations[0].end());
     bottom_up.push_back(ids);
     for (int i = 0; i < (int) generations.size() - 1; i++) {
-        std::vector<int> next_generation;
+        phmap::flat_hash_set<int> next_generation;
         std::set<int> set1(bottom_up[i].begin(), bottom_up[i].end());
-        std::set<int> set2;
-        for (const int id : generations[i + 1]) {
-            set2.insert(id);
-        }
+        std::set<int> set2(generations[i + 1].begin(), generations[i + 1].end());
         set_union(
             set1.begin(), set1.end(),
             set2.begin(), set2.end(),
-            std::back_inserter(next_generation)
+            std::inserter(next_generation, next_generation.end())
         );
         bottom_up.push_back(next_generation);
     }
@@ -84,28 +74,20 @@ std::vector<std::vector<int>> copy_bottom_up(
 }
 
 // Drag the individuals down
-std::vector<std::vector<int>> copy_top_down(
-    std::vector<std::vector<int>> &generations) {
+std::vector<phmap::flat_hash_set<int>> copy_top_down(
+    std::vector<phmap::flat_hash_set<int>> &generations) {
     reverse(generations.begin(), generations.end());
-    std::vector<std::vector<int>> top_down;
-    std::vector<int> ids;
-    for (const int id : generations[0]) {
-        ids.push_back(id);
-    }
+    std::vector<phmap::flat_hash_set<int>> top_down;
+    phmap::flat_hash_set<int> ids(generations[0].begin(), generations[0].end());
     top_down.push_back(ids);
     for (int i = 0; i < (int) generations.size() - 1; i++) {
-        std::vector<int> next_generation;
-        std::set<int> set1, set2;
-        for (int id : top_down[i]) {
-            set1.insert(id);
-        }
-        for (const int id : generations[i + 1]) {
-            set2.insert(id);
-        }
+        phmap::flat_hash_set<int> next_generation;
+        std::set<int> set1(top_down[i].begin(), top_down[i].end());
+        std::set<int> set2(generations[i + 1].begin(), generations[i + 1].end());
         set_union(
             set1.begin(), set1.end(),
             set2.begin(), set2.end(),
-            std::back_inserter(next_generation)
+            std::inserter(next_generation, next_generation.end())
         );
         top_down.push_back(next_generation);
     }
@@ -114,11 +96,10 @@ std::vector<std::vector<int>> copy_top_down(
 
 // Find the intersection of the two sets
 std::vector<std::vector<int>> intersect_both_directions(
-    std::vector<std::vector<int>> &bottom_up,
-    std::vector<std::vector<int>> &top_down) {
+    std::vector<phmap::flat_hash_set<int>> &bottom_up,
+    std::vector<phmap::flat_hash_set<int>> &top_down) {
     std::vector<std::vector<int>> vertex_cuts;
     for (int i = 0; i < (int) bottom_up.size(); i++) {
-        std::vector<int> vertex_cut;
         std::set<int> set1(bottom_up[i].begin(), bottom_up[i].end());
         std::set<int> set2(top_down[i].begin(), top_down[i].end());
         std::vector<int> intersection_result;
@@ -127,9 +108,7 @@ std::vector<std::vector<int>> intersect_both_directions(
             set2.begin(), set2.end(),
             std::back_inserter(intersection_result)
         );
-        for (int id : intersection_result) {
-            vertex_cut.push_back(id);
-        }
+        std::vector<int> vertex_cut(intersection_result.begin(), intersection_result.end());
         vertex_cuts.push_back(vertex_cut);
     }
     return vertex_cuts;
@@ -140,9 +119,10 @@ std::vector<std::vector<int>> intersect_both_directions(
 // Based on the recursive-cut algorithm from Kirkpatrick et al.
 std::vector<std::vector<int>> cut_vertices(
     Pedigree<> &pedigree, std::vector<int> &proband_ids) {
-    std::vector<std::vector<int>> generations, vertex_cuts;
+    std::vector<phmap::flat_hash_set<int>> generations;
+    std::vector<std::vector<int>> vertex_cuts;
     generations = get_generations(pedigree, proband_ids);
-    std::vector<std::vector<int>> bottom_up, top_down;
+    std::vector<phmap::flat_hash_set<int>> bottom_up, top_down;
     bottom_up = copy_bottom_up(generations);
     top_down = copy_top_down(generations);
     vertex_cuts = intersect_both_directions(bottom_up, top_down);

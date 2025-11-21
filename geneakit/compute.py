@@ -20,12 +20,12 @@ def get_previous_generation(pedigree, ids):
             parent_set.add(individual.father.ind)
         if individual.mother.ind:
             parent_set.add(individual.mother.ind)
-    return list(parent_set)
+    return parent_set
 
 def get_generations(pedigree, proband_ids):
     """Go from the bottom to the top of the pedigree."""
     generations = []
-    generation = proband_ids
+    generation = set(proband_ids)
     while generation:
         generations.append(generation)
         generation = get_previous_generation(pedigree, generation)
@@ -37,7 +37,7 @@ def copy_bottom_up(generations):
     ids = generations[0]
     bottom_up.append(ids)
     for i in range(len(generations) - 1):
-        next_generation = list(set(bottom_up[i]) | set(generations[i + 1]))
+        next_generation = set(bottom_up[i]) | set(generations[i + 1])
         bottom_up.append(next_generation)
     bottom_up.reverse()
     return bottom_up
@@ -49,7 +49,7 @@ def copy_top_down(generations):
     ids = gens_reversed[0]
     top_down.append(ids)
     for i in range(len(gens_reversed) - 1):
-        next_generation = list(set(top_down[i]) | set(gens_reversed[i + 1]))
+        next_generation = set(top_down[i]) | set(gens_reversed[i + 1])
         top_down.append(next_generation)
     return top_down
 
@@ -57,7 +57,7 @@ def intersect_both_directions(bottom_up, top_down):
     """Find the intersection of the two sets (the vertex cuts)."""
     vertex_cuts = []
     for i in range(len(bottom_up)):
-        vertex_cut = list(np.intersect1d(bottom_up[i], top_down[i]))
+        vertex_cut = list(bottom_up[i].intersection(top_down[i]))
         vertex_cuts.append(vertex_cut)
     return vertex_cuts
 

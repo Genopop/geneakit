@@ -37,25 +37,25 @@ SOFTWARE.
 #include "matrix.hpp"
 
 // Returns the previous generation of a set of individuals.
-std::vector<int> get_previous_generation(Pedigree<> &pedigree,
-    std::vector<int> &ids);
+phmap::flat_hash_set<int> get_previous_generation(Pedigree<> &pedigree,
+    phmap::flat_hash_set<int> &ids);
 
 // Go from the bottom to the top of the pedigree
-std::vector<std::vector<int>> get_generations(
+std::vector<phmap::flat_hash_set<int>> get_generations(
     Pedigree<> &pedigree, std::vector<int> &proband_ids);
 
 // Drag the individuals up
-std::vector<std::vector<int>> copy_bottom_up(
-    std::vector<std::vector<int>> &generations);
+std::vector<phmap::flat_hash_set<int>> copy_bottom_up(
+    std::vector<phmap::flat_hash_set<int>> &generations);
 
 // Drag the individuals down
-std::vector<std::vector<int>> copy_top_down(
-    std::vector<std::vector<int>> &generations);
+std::vector<phmap::flat_hash_set<int>> copy_top_down(
+    std::vector<phmap::flat_hash_set<int>> &generations);
 
 // Find the intersection of the two sets
 std::vector<std::vector<int>> intersect_both_directions(
-    std::vector<std::vector<int>> &bottom_up,
-    std::vector<std::vector<int>> &top_down);
+    std::vector<phmap::flat_hash_set<int>> &bottom_up,
+    std::vector<phmap::flat_hash_set<int>> &top_down);
 
 // Separate the individuals into generations where individuals who appear
 // in two non-contiguous generations are dragged in the generations in-between.
