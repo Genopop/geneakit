@@ -810,7 +810,23 @@ def phi(gen, **kwargs):
     return kinship_matrix
 
 def phiMean(kinship_matrix):
-    """Calculate mean kinship coefficient excluding self-pairs"""
+    """Calculate mean kinship coefficient excluding self-pairs
+    
+    Args:
+        kinship_matrix (pd.DataFrame | csc_matrix): Kinship matrix from gen.phi()
+        
+    Returns:
+        float: Mean kinship coefficient across all unique proband pairs
+        
+    Examples:
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
+        >>> kin_mat = gen.phi(ped)
+        >>> mean_phi = gen.phiMean(kin_mat)
+        >>> print(f"Average kinship: {mean_phi:.4f}")
+        Average kinship: 0.1719
+    """
     if issparse(kinship_matrix):
         # Handle Generic Sparse Matrix (CSR or CSC)
         total = kinship_matrix.sum()
