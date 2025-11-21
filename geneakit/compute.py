@@ -145,15 +145,17 @@ def build_maps(n_next, next_cut, prev_map, father_indices, mother_indices):
 @njit(parallel=True, cache=True)
 def compute_generation_fused(
     n_next,
-    up_map,
-    down_indices, down_indptr,
-    K_prev_indices, K_prev_indptr, K_prev_data,
+    batch_start,
+    batch_up_map,   # Sliced map for iterating rows (local index -> parents)
+    full_up_map,    # Full map for looking up child info (global index -> parents)
+    down_indices, down_starts, down_ends,
+    K_prev_indices, K_prev_starts, K_prev_ends, K_prev_data,
     current_self_kinships,
     scratch_maps, scratch_vals, scratch_cols
 ):
     """
-    Computes K_next = P * K_prev * P.T + D entirely in one pass (Sparse Output).
-    Uses int64 for indices to prevent overflow on massive matrices.
+    Computes K_next = P * K_prev * P.T + D.
+    Supports batching via batch_start and separated up_maps.
     """
         
     out_indptr = np.empty(n_next + 1, dtype=np.int64)
@@ -166,10 +168,13 @@ def compute_generation_fused(
         tid = get_thread_id()
         spa_map = scratch_maps[tid]
         
+        # Row Tag uses Global Index to avoid collision across batches
+        row_tag = i + batch_start
+        
         nnz_count = 0
         
-        p1 = up_map[i, 0]
-        p2 = up_map[i, 1]
+        p1 = batch_up_map[i, 0]
+        p2 = batch_up_map[i, 1]
         is_copy = (p2 == -2)
         
         parents_to_scan = np.empty(2, dtype=np.int64)
@@ -183,21 +188,23 @@ def compute_generation_fused(
             
         for p_idx_i in range(pt_count):
             p_row = parents_to_scan[p_idx_i]
-            start = K_prev_indptr[p_row]
-            end = K_prev_indptr[p_row+1]
+            start = K_prev_starts[p_row]
+            end = K_prev_ends[p_row]
             
             for k_idx in range(start, end):
                 ancestor = K_prev_indices[k_idx]
-                d_start = down_indptr[ancestor]
-                d_end = down_indptr[ancestor+1]
+                d_start = down_starts[ancestor]
+                d_end = down_ends[ancestor]
                 
                 for d_k in range(d_start, d_end):
                     child = down_indices[d_k]
-                    if spa_map[child] != i:
-                        spa_map[child] = i
+                    if spa_map[child] != row_tag:
+                        spa_map[child] = row_tag
                         nnz_count += 1
         
-        if spa_map[i] != i:
+        # Diagonal (Global Index)
+        diag_col = i + batch_start
+        if spa_map[diag_col] != row_tag:
             nnz_count += 1
             
         row_nnzs[i] = nnz_count
@@ -225,10 +232,11 @@ def compute_generation_fused(
         spa_values = scratch_vals[tid]
         local_indices = scratch_cols[tid] 
         
+        row_tag = i + batch_start
         local_ptr = 0
         
-        p1 = up_map[i, 0]
-        p2 = up_map[i, 1]
+        p1 = batch_up_map[i, 0]
+        p2 = batch_up_map[i, 1]
         is_copy = (p2 == -2)
         
         parents_to_scan = np.empty(2, dtype=np.int64)
@@ -245,8 +253,8 @@ def compute_generation_fused(
             
             scaler = 1.0 if is_copy else 0.5
             
-            start = K_prev_indptr[p_row]
-            end = K_prev_indptr[p_row+1]
+            start = K_prev_starts[p_row]
+            end = K_prev_ends[p_row]
             
             for k_idx in range(start, end):
                 ancestor = K_prev_indices[k_idx]
@@ -254,14 +262,16 @@ def compute_generation_fused(
                 
                 val_to_scatter = scaler * kinship_val
                 
-                d_start = down_indptr[ancestor]
-                d_end = down_indptr[ancestor+1]
+                d_start = down_starts[ancestor]
+                d_end = down_ends[ancestor]
                 
                 for d_k in range(d_start, d_end):
                     child = down_indices[d_k]
                     
-                    c_p1 = up_map[child, 0]
-                    c_p2 = up_map[child, 1]
+                    # Child is global index. 
+                    # Use FULL map to determine child's parents for scaling.
+                    c_p1 = full_up_map[child, 0]
+                    c_p2 = full_up_map[child, 1]
                     
                     child_scaler = 0.0
                     if c_p2 == -2: 
@@ -272,19 +282,21 @@ def compute_generation_fused(
                     
                     contribution = val_to_scatter * child_scaler
                     
-                    if spa_map[child] != i:
-                        spa_map[child] = i
+                    if spa_map[child] != row_tag:
+                        spa_map[child] = row_tag
                         spa_values[child] = contribution
                         local_indices[local_ptr] = child
                         local_ptr += 1
                     else:
                         spa_values[child] += contribution
-                        
+        
+        diag_col = i + batch_start
+        
         # Diagonal Correction
         diag_val = 0.0
         if is_copy:
-            if spa_map[i] == i:
-                diag_val = spa_values[i]
+            if spa_map[diag_col] == row_tag:
+                diag_val = spa_values[diag_col]
             else:
                 diag_val = 0.5 
         else:
@@ -294,19 +306,19 @@ def compute_generation_fused(
             if p2 >= 0: phi_mm = current_self_kinships[p2]
             
             raw_val = 0.0
-            if spa_map[i] == i:
-                raw_val = spa_values[i]
+            if spa_map[diag_col] == row_tag:
+                raw_val = spa_values[diag_col]
                 
             diag_val = 0.5 + raw_val - 0.25 * (phi_pp + phi_mm)
 
         output_diagonals[i] = diag_val
         
-        if spa_map[i] != i:
-            spa_map[i] = i
-            local_indices[local_ptr] = i
+        if spa_map[diag_col] != row_tag:
+            spa_map[diag_col] = row_tag
+            local_indices[local_ptr] = diag_col
             local_ptr += 1
         
-        spa_values[i] = diag_val
+        spa_values[diag_col] = diag_val
         
         # Write global
         global_offset = out_indptr[i]
@@ -321,21 +333,18 @@ def compute_generation_fused(
 def compute_last_generation_dense(
     n_next,
     up_map,
-    down_indices, down_indptr,
-    K_prev_indices, K_prev_indptr, K_prev_data,
+    down_indices, down_starts, down_ends,
+    K_prev_indices, K_prev_starts, K_prev_ends, K_prev_data,
     current_self_kinships,
     scratch_vals
 ):
     """
     Computes K_next directly into a Dense Matrix (float32).
-    Used when dense_output=True to avoid sparse construction overhead.
     """
-    # Allocate Dense Output Matrix
     K_next = np.zeros((n_next, n_next), dtype=np.float32)
     
     for i in prange(n_next):
         tid = get_thread_id()
-        # Use thread-local scratch buffer for accumulation
         spa_values = scratch_vals[tid]
         
         p1 = up_map[i, 0]
@@ -355,8 +364,8 @@ def compute_last_generation_dense(
             p_row = parents_to_scan[p_idx_i]
             scaler = 1.0 if is_copy else 0.5
             
-            start = K_prev_indptr[p_row]
-            end = K_prev_indptr[p_row+1]
+            start = K_prev_starts[p_row]
+            end = K_prev_ends[p_row]
             
             for k_idx in range(start, end):
                 ancestor = K_prev_indices[k_idx]
@@ -364,8 +373,8 @@ def compute_last_generation_dense(
                 
                 val_to_scatter = scaler * kinship_val
                 
-                d_start = down_indptr[ancestor]
-                d_end = down_indptr[ancestor+1]
+                d_start = down_starts[ancestor]
+                d_end = down_ends[ancestor]
                 
                 for d_k in range(d_start, d_end):
                     child = down_indices[d_k]
@@ -383,7 +392,6 @@ def compute_last_generation_dense(
                     contribution = val_to_scatter * child_scaler
                     spa_values[child] += contribution
                         
-        # Diagonal Correction
         diag_val = 0.0
         if is_copy:
             diag_val = spa_values[i]
@@ -398,19 +406,75 @@ def compute_last_generation_dense(
 
         spa_values[i] = diag_val
         
-        # Copy to global dense matrix and reset scratch
         for col in range(n_next):
             K_next[i, col] = spa_values[col]
             spa_values[col] = 0.0
             
     return K_next
 
-def compute_kinships_sparse(gen, pro=None, dense_output=False, verbose=False):
+# ---------------------------------------------------------
+# Low Memory Utils
+# ---------------------------------------------------------
+
+@njit(cache=True)
+def get_usage_counts(n_next, up_map, n_prev):
+    """Counts how many times each parent in the previous generation is used."""
+    counts = np.zeros(n_prev, dtype=np.int32)
+    for i in range(n_next):
+        p1 = up_map[i, 0]
+        p2 = up_map[i, 1]
+        if p1 >= 0: counts[p1] += 1
+        if p2 >= 0 and p2 != -2: counts[p2] += 1
+    return counts
+
+@njit(cache=True)
+def identify_batch_parents(batch_len, batch_start, up_map):
+    """
+    Identifies unique parents for a batch (indices are GLOBAL).
+    """
+    temp_parents = np.empty(batch_len * 2, dtype=np.int64)
+    ptr = 0
+    for i in range(batch_len):
+        global_ind = batch_start + i
+        p1 = up_map[global_ind, 0]
+        p2 = up_map[global_ind, 1]
+        if p1 >= 0:
+            temp_parents[ptr] = p1
+            ptr += 1
+        if p2 >= 0 and p2 != -2:
+            temp_parents[ptr] = p2
+            ptr += 1
+            
+    temp_parents_view = temp_parents[:ptr]
+    temp_parents_view.sort()
+    
+    unique_count = 0
+    if ptr > 0:
+        unique_count = 1
+        for i in range(1, ptr):
+            if temp_parents_view[i] != temp_parents_view[i-1]:
+                unique_count += 1
+                
+    unique_parents = np.empty(unique_count, dtype=np.int64)
+    if ptr > 0:
+        unique_parents[0] = temp_parents_view[0]
+        w = 1
+        for i in range(1, ptr):
+            if temp_parents_view[i] != temp_parents_view[i-1]:
+                unique_parents[w] = temp_parents_view[i]
+                w += 1
+                
+    return unique_parents
+
+def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=False):
+    """
+    Low memory version of sparse kinship computation.
+    Uses chunking and immediate dereferencing of parent rows.
+    """
     if pro is None:
         pro = cgeneakit.get_proband_ids(gen)
 
     n_total = len(gen)
-    # Use int64 for indices/maps
     father_indices = np.full(n_total, -1, dtype=np.int64)
     mother_indices = np.full(n_total, -1, dtype=np.int64)
     
@@ -420,7 +484,170 @@ def compute_kinships_sparse(gen, pro=None, dense_output=False, verbose=False):
         if individual.mother.ind:
             mother_indices[individual.rank] = individual.mother.rank
 
-    # Cut vertices
+    if verbose: print("Computing vertex cuts (Low Memory)...")
+    raw_vertex_cuts = cut_vertices(gen, pro)
+    cuts_mapped = []
+    for cut in raw_vertex_cuts:
+        mapped = np.array([gen[id].rank for id in cut], dtype=np.int64)
+        cuts_mapped.append(mapped)
+
+    if not cuts_mapped:
+        empty_ret = csr_matrix((0, 0), dtype=np.float32)
+        return empty_ret.toarray() if dense_output else empty_ret
+
+    n_founders = len(cuts_mapped[0])
+    prev_rows = []
+    for k in range(n_founders):
+        prev_rows.append( (np.array([k], dtype=np.int64), np.array([0.5], dtype=np.float32)) )
+    
+    current_self_kinships = np.full(n_founders, 0.5, dtype=np.float32)
+    
+    n_threads = get_num_threads()
+    BATCH_SIZE = 4096
+    
+    max_cut_size = max(len(c) for c in cuts_mapped)
+    
+    global_K_starts = np.zeros(max_cut_size + 1, dtype=np.int64)
+    global_K_ends = np.zeros(max_cut_size + 1, dtype=np.int64)
+    
+    for t in range(len(cuts_mapped) - 1):
+        current_cut = cuts_mapped[t]
+        next_cut = cuts_mapped[t + 1]
+        n_next = len(next_cut)
+        n_prev = len(current_cut)
+
+        if verbose:
+            print(f"Processing cut {t+1}/{len(cuts_mapped)-1}: {n_prev} -> {n_next} (Low Mem)")
+
+        prev_map = np.full(n_total, -1, dtype=np.int64)
+        prev_map[current_cut] = np.arange(n_prev, dtype=np.int64)
+        
+        up_map, down_indices, down_indptr = build_maps(
+            n_next, next_cut, prev_map, father_indices, mother_indices
+        )
+        
+        down_starts = down_indptr[:-1]
+        down_ends = down_indptr[1:]
+        
+        usage_counts = get_usage_counts(n_next, up_map, n_prev)
+        
+        next_rows = [None] * n_next
+        next_self_kinships = np.zeros(n_next, dtype=np.float32)
+        
+        num_batches = (n_next + BATCH_SIZE - 1) // BATCH_SIZE
+        
+        scratch_maps = np.full((n_threads, n_next), -1, dtype=np.int64)
+        scratch_vals = np.zeros((n_threads, n_next), dtype=np.float32)
+        scratch_cols = np.zeros((n_threads, n_next), dtype=np.int64)
+        
+        for b in range(num_batches):
+            start = b * BATCH_SIZE
+            end = min(start + BATCH_SIZE, n_next)
+            batch_len = end - start
+            
+            batch_up_map = up_map[start:end] 
+            
+            unique_parents = identify_batch_parents(batch_len, start, up_map)
+            n_batch_parents = len(unique_parents)
+            
+            p_data = []
+            p_indices = []
+            
+            current_ptr = 0
+            for uid in unique_parents:
+                cols, vals = prev_rows[uid]
+                p_data.append(vals)
+                p_indices.append(cols)
+                
+                length = len(vals)
+                global_K_starts[uid] = current_ptr
+                global_K_ends[uid] = current_ptr + length
+                current_ptr += length
+            
+            if n_batch_parents > 0:
+                batch_prev_data = np.concatenate(p_data) if p_data else np.array([], dtype=np.float32)
+                batch_prev_indices = np.concatenate(p_indices) if p_indices else np.array([], dtype=np.int64)
+            else:
+                batch_prev_data = np.array([], dtype=np.float32)
+                batch_prev_indices = np.array([], dtype=np.int64)
+
+            b_indices, b_indptr, b_data, b_diags = compute_generation_fused(
+                batch_len,
+                start, 
+                batch_up_map, # Sliced Map
+                up_map,       # Full Map
+                down_indices, down_starts, down_ends,
+                batch_prev_indices, global_K_starts, global_K_ends, batch_prev_data,
+                current_self_kinships,
+                scratch_maps, scratch_vals, scratch_cols
+            )
+            
+            for i in range(batch_len):
+                row_start = b_indptr[i]
+                row_end = b_indptr[i+1]
+                r_cols = b_indices[row_start:row_end].copy()
+                r_vals = b_data[row_start:row_end].copy()
+                next_rows[start + i] = (r_cols, r_vals)
+                next_self_kinships[start + i] = b_diags[i]
+            
+            for uid in unique_parents:
+                global_K_starts[uid] = 0
+                global_K_ends[uid] = 0
+            
+            batch_counts = get_usage_counts(batch_len, batch_up_map, n_prev)
+            
+            for uid in unique_parents:
+                usage_counts[uid] -= batch_counts[uid]
+                if usage_counts[uid] <= 0:
+                    prev_rows[uid] = None
+                    
+            if b % 5 == 0:
+                gc_.collect()
+        
+        prev_rows = next_rows
+        current_self_kinships = next_self_kinships
+        del next_rows
+        del up_map, down_indices, down_indptr
+        gc_.collect()
+    
+    if verbose: print("Finalizing matrix construction...")
+    
+    if dense_output:
+        n = len(prev_rows)
+        mat = np.zeros((n, n), dtype=np.float32)
+        for i in range(n):
+            cols, vals = prev_rows[i]
+            mat[i, cols] = vals
+        return mat
+    else:
+        all_cols = []
+        all_vals = []
+        indptr = np.zeros(n_next + 1, dtype=np.int64)
+        cur = 0
+        for i in range(n_next):
+            cols, vals = prev_rows[i]
+            all_cols.append(cols)
+            all_vals.append(vals)
+            cur += len(cols)
+            indptr[i+1] = cur
+            
+        return csr_matrix((np.concatenate(all_vals), np.concatenate(all_cols), indptr), 
+                          shape=(n_next, n_next))
+
+def compute_kinships_sparse(gen, pro=None, dense_output=False, verbose=False):
+    if pro is None:
+        pro = cgeneakit.get_proband_ids(gen)
+
+    n_total = len(gen)
+    father_indices = np.full(n_total, -1, dtype=np.int64)
+    mother_indices = np.full(n_total, -1, dtype=np.int64)
+    
+    for individual in gen.values():
+        if individual.father.ind:
+            father_indices[individual.rank] = individual.father.rank
+        if individual.mother.ind:
+            mother_indices[individual.rank] = individual.mother.rank
+
     if verbose: print("Computing vertex cuts...")
     raw_vertex_cuts = cut_vertices(gen, pro)
     cuts_mapped = []
@@ -434,7 +661,6 @@ def compute_kinships_sparse(gen, pro=None, dense_output=False, verbose=False):
             return empty_ret.toarray()
         return empty_ret
 
-    # Initialize Founders
     n_founders = len(cuts_mapped[0])
     current_data = np.full(n_founders, 0.5, dtype=np.float32)
     current_indices = np.arange(n_founders, dtype=np.int64) 
@@ -443,9 +669,7 @@ def compute_kinships_sparse(gen, pro=None, dense_output=False, verbose=False):
     
     n_threads = get_num_threads()
     
-    # If requesting dense output, and only 1 cut (just founders?), we must handle it.
     if len(cuts_mapped) == 1 and dense_output:
-         # Return identity matrix * 0.5
          mat = np.zeros((n_founders, n_founders), dtype=np.float32)
          np.fill_diagonal(mat, 0.5)
          return mat
@@ -466,40 +690,36 @@ def compute_kinships_sparse(gen, pro=None, dense_output=False, verbose=False):
             n_next, next_cut, prev_map, father_indices, mother_indices
         )
         
-        # Check if this is the last iteration and if dense output is requested
         is_last_step = (t == len(cuts_mapped) - 2)
         
         if is_last_step and dense_output:
             if verbose: print("Computing final generation directly to dense matrix...")
-            # Allocate scratch for dense (just values)
             scratch_vals = np.zeros((n_threads, n_next), dtype=np.float32)
             
             dense_result = compute_last_generation_dense(
                 n_next,
                 up_map,
-                down_indices, down_indptr,
-                current_indices, current_indptr, current_data,
+                down_indices, down_indptr[:-1], down_indptr[1:],
+                current_indices, current_indptr[:-1], current_indptr[1:], current_data,
                 current_self_kinships,
                 scratch_vals
             )
-            # Clean up
-            del up_map, down_indices, down_indptr
-            del scratch_vals
+            del up_map, down_indices, down_indptr, scratch_vals
             gc_.collect()
-            
             return dense_result
             
         else:
-            # Standard Sparse Step
             scratch_maps = np.full((n_threads, n_next), -1, dtype=np.int64)
             scratch_vals = np.zeros((n_threads, n_next), dtype=np.float32)
             scratch_cols = np.zeros((n_threads, n_next), dtype=np.int64)
             
             next_indices, next_indptr, next_data, next_self = compute_generation_fused(
                 n_next,
-                up_map,
-                down_indices, down_indptr,
-                current_indices, current_indptr, current_data,
+                0, 
+                up_map, # batch_up_map (full)
+                up_map, # full_up_map
+                down_indices, down_indptr[:-1], down_indptr[1:],
+                current_indices, current_indptr[:-1], current_indptr[1:], current_data,
                 current_self_kinships,
                 scratch_maps, scratch_vals, scratch_cols
             )
@@ -532,6 +752,9 @@ def phi(gen, **kwargs):
         sparse (bool, default False): Use sparse computation algorithm (graph cuts).
         dense_output (bool, default False): If True and sparse=True, computes the final matrix
             directly as a dense array. Faster for dense outputs.
+        low_memory (bool, default False): If True and sparse=True, optimizes for memory
+            usage by deleting parent rows as soon as children are processed. 
+            Slightly slower but significantly reduces peak RAM.
         raw (bool, default False): If True, returns (matrix, ids). If False, returns pd.DataFrame.
     
     Returns:
@@ -546,6 +769,7 @@ def phi(gen, **kwargs):
     sparse = kwargs.get('sparse', False)
     raw = kwargs.get('raw', False)
     dense_output = kwargs.get('dense_output', False)
+    low_memory = kwargs.get('low_memory', False)
     
     if not compute:
         required_memory = cgeneakit.get_required_memory_for_kinships(gen, pro)
@@ -556,7 +780,10 @@ def phi(gen, **kwargs):
         begin = time.time()
         
     if sparse:
-        kinship_matrix = compute_kinships_sparse(gen, pro=pro, dense_output=dense_output, verbose=verbose)
+        if low_memory:
+            kinship_matrix = compute_kinships_sparse_low_mem(gen, pro=pro, dense_output=dense_output, verbose=verbose)
+        else:
+            kinship_matrix = compute_kinships_sparse(gen, pro=pro, dense_output=dense_output, verbose=verbose)
         
         if raw:
             if verbose:
@@ -583,23 +810,7 @@ def phi(gen, **kwargs):
     return kinship_matrix
 
 def phiMean(kinship_matrix):
-    """Calculate mean kinship coefficient excluding self-pairs
-    
-    Args:
-        kinship_matrix (pd.DataFrame | csc_matrix): Kinship matrix from gen.phi()
-        
-    Returns:
-        float: Mean kinship coefficient across all unique proband pairs
-        
-    Examples:
-        >>> import geneakit as gen
-        >>> from geneakit import geneaJi
-        >>> ped = gen.genealogy(geneaJi)
-        >>> kin_mat = gen.phi(ped)
-        >>> mean_phi = gen.phiMean(kin_mat)
-        >>> print(f"Average kinship: {mean_phi:.4f}")
-        Average kinship: 0.1719
-    """
+    """Calculate mean kinship coefficient excluding self-pairs"""
     if issparse(kinship_matrix):
         # Handle Generic Sparse Matrix (CSR or CSC)
         total = kinship_matrix.sum()
@@ -649,9 +860,7 @@ def phiOver(phiMatrix, threshold):
                 })
         return pd.DataFrame(pairs)
 
-    # DataFrame / Dense Logic
     rows = phiMatrix.shape[0]
-    
     for i in range(rows):
         for j in range(i):
             val = phiMatrix.iloc[i, j] if isinstance(phiMatrix, pd.DataFrame) else phiMatrix[i, j]
