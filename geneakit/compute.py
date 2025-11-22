@@ -436,7 +436,7 @@ def get_usage_counts(n_next, up_map, n_prev):
         p1 = up_map[i, 0]
         p2 = up_map[i, 1]
         if p1 >= 0: counts[p1] += 1
-        if p2 >= 0 and p2 != -2: counts[p2] += 1
+        if p2 >= 0: counts[p2] += 1
     return counts
 
 @njit(cache=True)
