@@ -418,7 +418,19 @@ def compute_last_generation_dense(
 
 @njit(cache=True)
 def get_usage_counts(n_next, up_map, n_prev):
-    """Counts how many times each parent in the previous generation is used."""
+    """
+    Counts how many times each parent in the previous generation is used.
+    
+    LOGICAL VALIDITY:
+    This function establishes the reference counts for the "low memory" algorithm.
+    Mathematically, a row 'p' in K_prev is needed to compute the row 'c' in K_next
+    if 'p' is a parent of 'c'. 
+    
+    This function iterates over all 'c' in the next generation (n_next) and 
+    increments the count for their parents. This ensures we know exactly how 
+    many times the vector K_prev[p] will be accessed during the linear 
+    combination step of the kinship calculation.
+    """
     counts = np.zeros(n_prev, dtype=np.int32)
     for i in range(n_next):
         p1 = up_map[i, 0]
@@ -469,7 +481,21 @@ def identify_batch_parents(batch_len, batch_start, up_map):
 def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=False):
     """
     Low memory version of sparse kinship computation.
-    Uses chunking and immediate dereferencing of parent rows.
+    
+    LOGICAL SOUNDNESS:
+    This function implements the recursive kinship calculation K_next = P * K_prev * P.T + D
+    identical to the standard version, ensuring mathematical correctness.
+    
+    MEMORY OPTIMIZATION STRATEGY:
+    1. The 'prev_rows' structure stores K_prev (the kinship matrix of the parent generation).
+    2. Instead of holding the entire K_prev in memory while computing K_next, we process K_next
+       in batches.
+    3. We track 'usage_counts' (reference counting) for every row in K_prev.
+    4. As soon as a parent row's usage count drops to zero (meaning all children in the 
+       next generation have consumed its data), that row is immediately deleted (set to None).
+       
+    This ensures that the peak memory usage is proportional to the 'active frontier' of the 
+    pedigree graph rather than the total size of the generation matrices.
     """
     if pro is None:
         pro = cgeneakit.get_proband_ids(gen)
@@ -529,6 +555,9 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
         down_starts = down_indptr[:-1]
         down_ends = down_indptr[1:]
         
+        # Initialize Reference Counts:
+        # Calculate exactly how many times each parent (in current_cut) is referenced
+        # by children in the next generation (next_cut).
         usage_counts = get_usage_counts(n_next, up_map, n_prev)
         
         next_rows = [None] * n_next
@@ -540,6 +569,7 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
         scratch_vals = np.zeros((n_threads, n_next), dtype=np.float32)
         scratch_cols = np.zeros((n_threads, n_next), dtype=np.int64)
         
+        # Batch Processing Loop
         for b in range(num_batches):
             start = b * BATCH_SIZE
             end = min(start + BATCH_SIZE, n_next)
@@ -547,6 +577,8 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
             
             batch_up_map = up_map[start:end] 
             
+            # Optimization: Identify only the parents needed for THIS batch.
+            # This minimizes the amount of data passed to the numba kernel.
             unique_parents = identify_batch_parents(batch_len, start, up_map)
             n_batch_parents = len(unique_parents)
             
@@ -555,6 +587,8 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
             
             current_ptr = 0
             for uid in unique_parents:
+                # Access parent data. If logic fails, prev_rows[uid] would be None here,
+                # raising an error. Correct reference counting prevents this.
                 cols, vals = prev_rows[uid]
                 p_data.append(vals)
                 p_indices.append(cols)
@@ -571,6 +605,8 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
                 batch_prev_data = np.array([], dtype=np.float32)
                 batch_prev_indices = np.array([], dtype=np.int64)
 
+            # Compute K_next values for this batch.
+            # Mathematically: phi_child = 0.5 * phi_parent1 + 0.5 * phi_parent2
             b_indices, b_indptr, b_data, b_diags = compute_generation_fused(
                 batch_len,
                 start, 
@@ -594,13 +630,21 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
                 global_K_starts[uid] = 0
                 global_K_ends[uid] = 0
             
+            # --- SAFE MEMORY RECLAMATION ---
+            # 1. Calculate usages specifically within this batch.
             batch_counts = get_usage_counts(batch_len, batch_up_map, n_prev)
             
             for uid in unique_parents:
+                # 2. Decrement global reference count for this parent.
                 usage_counts[uid] -= batch_counts[uid]
+                
+                # 3. If usage count hits zero, this parent's row (vector) is no longer
+                #    needed for ANY future calculation in this generation.
+                #    Mathematically safe to discard.
                 if usage_counts[uid] <= 0:
                     prev_rows[uid] = None
-                    
+            
+            # 4. Trigger GC periodically to actually free the None-d memory blocks.
             if b % 5 == 0:
                 gc_.collect()
         
