@@ -24,6 +24,274 @@ SOFTWARE.
 
 #include "../include/compute.hpp"
 
+// -----------------------------------------------------------------------------
+// Sparse Kinship Implementation Structures
+// -----------------------------------------------------------------------------
+
+struct SparseRow {
+    std::vector<int> cols;
+    std::vector<float> vals;
+
+    void clear() {
+        std::vector<int>().swap(cols);
+        std::vector<float>().swap(vals);
+    }
+};
+
+// -----------------------------------------------------------------------------
+// Sparse Kinship Helpers
+// -----------------------------------------------------------------------------
+
+std::tuple<std::vector<std::array<int, 2>>, std::vector<std::vector<int>>, std::vector<int>>
+build_maps_sparse(
+    int n_next,
+    const std::vector<int>& next_cut_ids,
+    const phmap::flat_hash_map<int, int>& prev_map_lookup,
+    const std::vector<int>& father_indices,
+    const std::vector<int>& mother_indices,
+    Pedigree<>& pedigree
+) {
+    std::vector<std::array<int, 2>> up_map(n_next, {-1, -1});
+    std::vector<std::vector<int>> down_map(prev_map_lookup.size());
+    std::vector<int> usage_counts(prev_map_lookup.size(), 0);
+
+    for (int i = 0; i < n_next; ++i) {
+        int ind_id = next_cut_ids[i];
+        
+        auto it = prev_map_lookup.find(ind_id);
+        if (it != prev_map_lookup.end()) {
+            int prev_idx = it->second;
+            up_map[i][0] = prev_idx;
+            up_map[i][1] = -2; // Flag for Copy
+            down_map[prev_idx].push_back(i);
+            usage_counts[prev_idx]++;
+        } else {
+            Individual<>* ind = pedigree.individuals.at(ind_id);
+            
+            if (ind->father) {
+                auto f_it = prev_map_lookup.find(ind->father->id);
+                if (f_it != prev_map_lookup.end()) {
+                    int f_idx = f_it->second;
+                    up_map[i][0] = f_idx;
+                    down_map[f_idx].push_back(i);
+                    usage_counts[f_idx]++;
+                }
+            }
+
+            if (ind->mother) {
+                auto m_it = prev_map_lookup.find(ind->mother->id);
+                if (m_it != prev_map_lookup.end()) {
+                    int m_idx = m_it->second;
+                    up_map[i][1] = m_idx;
+                    down_map[m_idx].push_back(i);
+                    usage_counts[m_idx]++;
+                }
+            }
+        }
+    }
+    return {up_map, down_map, usage_counts};
+}
+
+// -----------------------------------------------------------------------------
+// Main Sparse Kinship Function
+// -----------------------------------------------------------------------------
+
+// Returns the sparse kinship matrix
+std::tuple<std::vector<float>, std::vector<int>, std::vector<int64_t>>
+compute_kinships_sparse(Pedigree<> &pedigree, std::vector<int> proband_ids, bool verbose) {
+    
+    if (proband_ids.empty()) {
+        proband_ids = get_proband_ids(pedigree);
+    }
+
+    if (verbose) std::cout << "Computing vertex cuts..." << std::endl;
+    std::vector<std::vector<int>> cuts = cut_vertices(pedigree, proband_ids);
+    
+    if (cuts.empty()) {
+        return {{}, {}, {0}};
+    }
+
+    int n_founders = cuts[0].size();
+    std::vector<SparseRow> prev_rows(n_founders);
+    std::vector<float> self_kinships(n_founders, 0.5);
+
+    for (int i = 0; i < n_founders; ++i) {
+        prev_rows[i].cols.push_back(i);
+        prev_rows[i].vals.push_back(0.5);
+    }
+
+    const int BATCH_SIZE = 1024;
+
+    for (size_t t = 0; t < cuts.size() - 1; ++t) {
+        const auto& current_cut = cuts[t];
+        const auto& next_cut = cuts[t + 1];
+        int n_prev = current_cut.size();
+        int n_next = next_cut.size();
+
+        if (verbose) {
+            printf("Processing cut %lu/%lu: %d -> %d individuals\n", 
+                   t + 1, cuts.size() - 1, n_prev, n_next);
+        }
+
+        phmap::flat_hash_map<int, int> prev_map_lookup;
+        prev_map_lookup.reserve(n_prev);
+        for (int i = 0; i < n_prev; ++i) {
+            prev_map_lookup[current_cut[i]] = i;
+        }
+
+        auto maps = build_maps_sparse(n_next, next_cut, prev_map_lookup, {}, {}, pedigree);
+        const auto& up_map = std::get<0>(maps);
+        const auto& down_map = std::get<1>(maps);
+        auto usage_counts = std::get<2>(maps);
+
+        std::vector<SparseRow> next_rows(n_next);
+        std::vector<float> next_self_kinships(n_next);
+
+        int num_batches = (n_next + BATCH_SIZE - 1) / BATCH_SIZE;
+
+        for (int b = 0; b < num_batches; ++b) {
+            int start = b * BATCH_SIZE;
+            int end = std::min(start + BATCH_SIZE, n_next);
+
+            #pragma omp parallel 
+            {
+                std::vector<float> dense_acc(n_next, 0.0);
+                std::vector<int> col_indices; 
+                col_indices.reserve(256);
+                std::vector<int> marker(n_next, 0);
+                int tag = 0;
+
+                #pragma omp for schedule(dynamic)
+                for (int i = start; i < end; ++i) {
+                    tag++; 
+                    col_indices.clear();
+                    
+                    int p1_idx = up_map[i][0];
+                    int p2_idx = up_map[i][1];
+                    bool is_copy = (p2_idx == -2);
+
+                    int parents[2];
+                    int p_count = 0;
+                    if (p1_idx >= 0) parents[p_count++] = p1_idx;
+                    if (!is_copy && p2_idx >= 0) parents[p_count++] = p2_idx;
+
+                    for (int k = 0; k < p_count; ++k) {
+                        int p_row = parents[k];
+                        float scaler = (is_copy) ? 1.0 : 0.5;
+                        const SparseRow& p_data = prev_rows[p_row];
+                        
+                        for (size_t idx = 0; idx < p_data.cols.size(); ++idx) {
+                            int ancestor = p_data.cols[idx];
+                            float kin_val = p_data.vals[idx] * scaler;
+                            
+                            const std::vector<int>& children_of_ancestor = down_map[ancestor];
+                            
+                            for (int child_idx : children_of_ancestor) {
+                                int c_p1 = up_map[child_idx][0];
+                                int c_p2 = up_map[child_idx][1];
+                                float child_scaler = 0.0;
+                                
+                                if (c_p2 == -2) { // Copy
+                                    if (c_p1 == ancestor) child_scaler = 1.0;
+                                } else {
+                                    if (c_p1 == ancestor) child_scaler += 0.5;
+                                    if (c_p2 == ancestor) child_scaler += 0.5;
+                                }
+                                
+                                float contribution = kin_val * child_scaler;
+                                
+                                if (marker[child_idx] != tag) {
+                                    marker[child_idx] = tag;
+                                    dense_acc[child_idx] = contribution;
+                                    col_indices.push_back(child_idx);
+                                } else {
+                                    dense_acc[child_idx] += contribution;
+                                }
+                            }
+                        }
+                    }
+
+                    // ---------------------------------------------------------
+                    // CORRECTED DIAGONAL LOGIC
+                    // ---------------------------------------------------------
+                    float diag_val = 0.0;
+                    if (is_copy) {
+                        if (marker[i] == tag) diag_val = dense_acc[i];
+                        else diag_val = 0.5; // Should effectively match prev self
+                    } else {
+                        // Only subtract self-kinship if the parent effectively contributed to raw_val
+                        // (i.e., parent was in the previous cut and p_idx >= 0)
+                        float term_pp = (p1_idx >= 0) ? 0.25 * self_kinships[p1_idx] : 0.0;
+                        float term_mm = (p2_idx >= 0) ? 0.25 * self_kinships[p2_idx] : 0.0;
+                        
+                        float raw_val = (marker[i] == tag) ? dense_acc[i] : 0.0;
+                        diag_val = 0.5 + raw_val - (term_pp + term_mm);
+                    }
+                    
+                    if (marker[i] != tag) {
+                        marker[i] = tag;
+                        dense_acc[i] = diag_val;
+                        col_indices.push_back(i);
+                    } else {
+                        dense_acc[i] = diag_val;
+                    }
+                    next_self_kinships[i] = diag_val;
+
+                    // Sort and Deduplicate for Pandas compatibility
+                    std::sort(col_indices.begin(), col_indices.end());
+                    auto last = std::unique(col_indices.begin(), col_indices.end());
+                    col_indices.erase(last, col_indices.end());
+
+                    next_rows[i].cols.reserve(col_indices.size());
+                    next_rows[i].vals.reserve(col_indices.size());
+                    
+                    for (int col : col_indices) {
+                        float val = dense_acc[col];
+                        if (std::abs(val) > 1e-12) {
+                            next_rows[i].cols.push_back(col);
+                            next_rows[i].vals.push_back(val);
+                        }
+                    }
+                }
+            }
+
+            // Serial cleanup
+            for (int i = start; i < end; ++i) {
+                int p1 = up_map[i][0];
+                int p2 = up_map[i][1];
+                if (p1 >= 0) {
+                    usage_counts[p1]--;
+                    if (usage_counts[p1] <= 0) prev_rows[p1].clear();
+                }
+                if (p2 >= 0 && p2 != -2) {
+                    usage_counts[p2]--;
+                    if (usage_counts[p2] <= 0) prev_rows[p2].clear();
+                }
+            }
+        }
+
+        prev_rows = std::move(next_rows);
+        self_kinships = std::move(next_self_kinships);
+    }
+
+    // Finalize
+    int n_final = prev_rows.size();
+    std::vector<float> final_data;
+    std::vector<int> final_indices;
+    std::vector<int64_t> final_indptr;
+    final_indptr.reserve(n_final + 1);
+    final_indptr.push_back(0);
+
+    for (int i = 0; i < n_final; ++i) {
+        final_indices.insert(final_indices.end(), prev_rows[i].cols.begin(), prev_rows[i].cols.end());
+        final_data.insert(final_data.end(), prev_rows[i].vals.begin(), prev_rows[i].vals.end());
+        final_indptr.push_back(final_data.size());
+        prev_rows[i].clear();
+    }
+
+    return {final_data, final_indices, final_indptr};
+}
+
 // Returns the previous generation of a set of individuals.
 phmap::flat_hash_set<int> get_previous_generation(Pedigree<> &pedigree,
     phmap::flat_hash_set<int> &ids) {

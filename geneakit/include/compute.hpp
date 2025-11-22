@@ -25,16 +25,25 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ------------------------------------------------------------------------------*/
 
-#include <vector>
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <math.h>
+#include <omp.h>
 #include <queue>
 #include <set>
-#include <math.h>
-#include <cstdint>
-#include <limits>
+#include <tuple>
+#include <vector>
 #include <parallel_hashmap/phmap.h>
 #include "identify.hpp"
 #include "extract.hpp"
 #include "matrix.hpp"
+
+// Returns the sparse kinship matrix
+std::tuple<std::vector<float>, std::vector<int>, std::vector<int64_t>>
+compute_kinships_sparse(Pedigree<> &pedigree, std::vector<int> proband_ids, bool verbose);
 
 // Returns the previous generation of a set of individuals.
 phmap::flat_hash_set<int> get_previous_generation(Pedigree<> &pedigree,

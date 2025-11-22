@@ -348,6 +348,41 @@ NB_MODULE(cgeneakit, m) {
     },
     "Returns the kinship matrix of a pedigree.");
 
+    m.def("compute_kinships_sparse", [] (Pedigree<> &pedigree,
+        std::vector<int> proband_ids, bool verbose) {
+            
+            auto result = compute_kinships_sparse(pedigree, proband_ids, verbose);
+            
+            // Unpack as double
+            std::vector<float> &data_vec = std::get<0>(result);
+            std::vector<int> &indices_vec = std::get<1>(result);
+            std::vector<int64_t> &indptr_vec = std::get<2>(result);
+
+            size_t nnz = data_vec.size();
+            size_t n_rows = indptr_vec.size() - 1;
+
+            // Copy to heap for numpy
+            float *data_ptr = new float[nnz];
+            std::copy(data_vec.begin(), data_vec.end(), data_ptr);
+            nb::capsule data_owner(data_ptr, [](void *p) noexcept { delete[] (float*)p; });
+            auto np_data = nb::ndarray<nb::numpy, float, nb::ndim<1>>(data_ptr, {nnz}, data_owner);
+
+            int *indices_ptr = new int[nnz];
+            std::copy(indices_vec.begin(), indices_vec.end(), indices_ptr);
+            nb::capsule indices_owner(indices_ptr, [](void *p) noexcept { delete[] (int*)p; });
+            auto np_indices = nb::ndarray<nb::numpy, int, nb::ndim<1>>(indices_ptr, {nnz}, indices_owner);
+
+            int64_t *indptr_ptr = new int64_t[n_rows + 1];
+            std::copy(indptr_vec.begin(), indptr_vec.end(), indptr_ptr);
+            nb::capsule indptr_owner(indptr_ptr, [](void *p) noexcept { delete[] (int64_t*)p; });
+            auto np_indptr = nb::ndarray<nb::numpy, int64_t, nb::ndim<1>>(indptr_ptr, {n_rows + 1}, indptr_owner);
+
+            return nb::make_tuple(np_data, np_indices, np_indptr);
+        },
+        "Returns (data, indices, indptr) for a sparse kinship matrix (float64).",
+        nb::arg("pedigree"), nb::arg("proband_ids") = std::vector<int>(), nb::arg("verbose") = false
+    );
+
     m.def("compute_inbreedings", &compute_inbreedings,
         "Returns the inbreeding coefficients of probands.");
     
