@@ -3,7 +3,7 @@ import time
 import cgeneakit
 import numpy as np
 import pandas as pd
-from numba import njit, prange, get_num_threads, get_thread_id
+from numba import njit, prange, get_num_threads, set_num_threads, get_thread_id
 from scipy.sparse import csr_matrix, issparse
 from scipy.stats import bootstrap
 
@@ -72,8 +72,22 @@ def cut_vertices(pedigree, proband_ids):
     vertex_cuts[-1] = proband_ids
     return vertex_cuts
 
+def get_optimal_thread_count(n_next, max_buffer_bytes=1024**3):
+    """
+    Calculates the maximum number of threads to avoid OOM.
+    Memory per thread = n_next * (4 bytes map + 4 bytes cols + 4 bytes vals) = 12 * n_next bytes.
+    """
+    bytes_per_thread = 12 * n_next
+    if bytes_per_thread == 0: return get_num_threads()
+    
+    # Allow up to max_buffer_bytes (default 1GB) for scratch buffers
+    max_threads_mem = max(1, max_buffer_bytes // bytes_per_thread)
+    current_threads = get_num_threads()
+    
+    return min(current_threads, max_threads_mem)
+
 # ---------------------------------------------------------
-# Numba Optimized Kernels (int64 support)
+# Numba Optimized Kernels (int64/int32 support)
 # ---------------------------------------------------------
 
 @njit(cache=True)
@@ -146,8 +160,8 @@ def build_maps(n_next, next_cut, prev_map, father_indices, mother_indices):
 def compute_generation_fused(
     n_next,
     batch_start,
-    batch_up_map,   # Sliced map for iterating rows (local index -> parents)
-    full_up_map,    # Full map for looking up child info (global index -> parents)
+    batch_up_map,   # Sliced map
+    full_up_map,    # Full map
     down_indices, down_starts, down_ends,
     K_prev_indices, K_prev_starts, K_prev_ends, K_prev_data,
     current_self_kinships,
@@ -155,7 +169,8 @@ def compute_generation_fused(
 ):
     """
     Computes K_next = P * K_prev * P.T + D.
-    Supports batching via batch_start and separated up_maps.
+    Optimized to remove array fills by using alternating Row Tags.
+    scratch_maps and scratch_cols are int32 to save memory.
     """
         
     out_indptr = np.empty(n_next + 1, dtype=np.int64)
@@ -168,8 +183,10 @@ def compute_generation_fused(
         tid = get_thread_id()
         spa_map = scratch_maps[tid]
         
-        # Row Tag uses Global Index to avoid collision across batches
-        row_tag = i + batch_start
+        # Use Odd Tags for Pass 1
+        # (i + batch_start) is unique. Shift left to make space for odd/even.
+        global_row = i + batch_start
+        row_tag = (global_row * 2) + 1
         
         nnz_count = 0
         
@@ -198,12 +215,13 @@ def compute_generation_fused(
                 
                 for d_k in range(d_start, d_end):
                     child = down_indices[d_k]
+                    # cast child to int for map index if needed (usually auto)
                     if spa_map[child] != row_tag:
                         spa_map[child] = row_tag
                         nnz_count += 1
         
-        # Diagonal (Global Index)
-        diag_col = i + batch_start
+        # Diagonal
+        diag_col = global_row
         if spa_map[diag_col] != row_tag:
             nnz_count += 1
             
@@ -216,12 +234,9 @@ def compute_generation_fused(
         total_nnz += row_nnzs[i]
     out_indptr[n_next] = total_nnz
     
-    # RESET SCRATCH MAPS
-    num_threads = len(scratch_maps)
-    for t in prange(num_threads):
-        scratch_maps[t, :].fill(-1)
+    # NO RESET REQUIRED due to alternating tags logic
 
-    out_indices = np.empty(total_nnz, dtype=np.int64)
+    out_indices = np.empty(total_nnz, dtype=np.int32) # use int32 for indices
     out_data = np.empty(total_nnz, dtype=np.float32)
     output_diagonals = np.empty(n_next, dtype=np.float32)
     
@@ -232,7 +247,10 @@ def compute_generation_fused(
         spa_values = scratch_vals[tid]
         local_indices = scratch_cols[tid] 
         
-        row_tag = i + batch_start
+        global_row = i + batch_start
+        # Use Even Tags for Pass 2
+        row_tag = (global_row * 2) + 2
+        
         local_ptr = 0
         
         p1 = batch_up_map[i, 0]
@@ -250,16 +268,13 @@ def compute_generation_fused(
             
         for p_idx_i in range(pt_count):
             p_row = parents_to_scan[p_idx_i]
-            
             scaler = 1.0 if is_copy else 0.5
-            
             start = K_prev_starts[p_row]
             end = K_prev_ends[p_row]
             
             for k_idx in range(start, end):
                 ancestor = K_prev_indices[k_idx]
                 kinship_val = K_prev_data[k_idx]
-                
                 val_to_scatter = scaler * kinship_val
                 
                 d_start = down_starts[ancestor]
@@ -268,8 +283,6 @@ def compute_generation_fused(
                 for d_k in range(d_start, d_end):
                     child = down_indices[d_k]
                     
-                    # Child is global index. 
-                    # Use FULL map to determine child's parents for scaling.
                     c_p1 = full_up_map[child, 0]
                     c_p2 = full_up_map[child, 1]
                     
@@ -290,7 +303,7 @@ def compute_generation_fused(
                     else:
                         spa_values[child] += contribution
         
-        diag_col = i + batch_start
+        diag_col = global_row
         
         # Diagonal Correction
         diag_val = 0.0
@@ -326,6 +339,7 @@ def compute_generation_fused(
             col = local_indices[k]
             out_indices[global_offset + k] = col
             out_data[global_offset + k] = spa_values[col]
+            # No need to clear spa_values; next tag mismatch will overwrite
             
     return out_indices, out_indptr, out_data, output_diagonals
 
@@ -363,14 +377,12 @@ def compute_last_generation_dense(
         for p_idx_i in range(pt_count):
             p_row = parents_to_scan[p_idx_i]
             scaler = 1.0 if is_copy else 0.5
-            
             start = K_prev_starts[p_row]
             end = K_prev_ends[p_row]
             
             for k_idx in range(start, end):
                 ancestor = K_prev_indices[k_idx]
                 kinship_val = K_prev_data[k_idx]
-                
                 val_to_scatter = scaler * kinship_val
                 
                 d_start = down_starts[ancestor]
@@ -406,9 +418,12 @@ def compute_last_generation_dense(
 
         spa_values[i] = diag_val
         
+        # DENSE WRITE & CLEAR
         for col in range(n_next):
-            K_next[i, col] = spa_values[col]
-            spa_values[col] = 0.0
+            val = spa_values[col]
+            if val != 0.0:
+                K_next[i, col] = val
+                spa_values[col] = 0.0
             
     return K_next
 
@@ -509,32 +524,30 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
         return empty_ret.toarray() if dense_output else empty_ret
 
     n_founders = len(cuts_mapped[0])
-    # Store columns and values separately to avoid tuple unpacking overhead later
+    # Store columns and values separately.
+    # Using int32 for columns from the start if possible, but founders init is small.
     prev_cols = []
     prev_vals = []
     for k in range(n_founders):
-        prev_cols.append(np.array([k], dtype=np.int64))
+        prev_cols.append(np.array([k], dtype=np.int32)) # int32
         prev_vals.append(np.array([0.5], dtype=np.float32))
     
     current_self_kinships = np.full(n_founders, 0.5, dtype=np.float32)
     
-    n_threads = get_num_threads()
     BATCH_SIZE = 1024
+    parent_id_buffer = np.empty(BATCH_SIZE * 2, dtype=np.int64)
+    
+    # Reusable buffers for prev generation batch aggregation
+    current_buf_cap = 1024 * 1024 
+    shared_indices_buf = np.empty(current_buf_cap, dtype=np.int32) # int32
+    shared_data_buf = np.empty(current_buf_cap, dtype=np.float32)
     
     max_cut_size = max(len(c) for c in cuts_mapped)
-    
     global_K_starts = np.zeros(max_cut_size + 1, dtype=np.int64)
     global_K_ends = np.zeros(max_cut_size + 1, dtype=np.int64)
     
-    parent_id_buffer = np.empty(BATCH_SIZE * 2, dtype=np.int64)
-    
-    # --- PRE-ALLOCATED REUSABLE BUFFERS ---
-    # Start with a reasonable size (e.g., 10 MB elements) to minimize resizing
-    # but small enough not to hog RAM if pedigree is small.
-    current_buf_cap = 1024 * 1024 
-    shared_indices_buf = np.empty(current_buf_cap, dtype=np.int64)
-    shared_data_buf = np.empty(current_buf_cap, dtype=np.float32)
-    
+    original_thread_count = get_num_threads()
+
     for t in range(len(cuts_mapped) - 1):
         current_cut = cuts_mapped[t]
         next_cut = cuts_mapped[t + 1]
@@ -560,11 +573,19 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
         next_vals = [None] * n_next
         next_self_kinships = np.zeros(n_next, dtype=np.float32)
         
+        # --- DYNAMIC THREADING ---
+        # Calculate memory required per thread for scratch buffers
+        # scratch_maps (int32) + scratch_cols (int32) + scratch_vals (float32)
+        # = 12 bytes * n_next per thread
+        active_threads = get_optimal_thread_count(n_next, max_buffer_bytes=1024**3) # 1GB limit
+        set_num_threads(active_threads)
+        
         num_batches = (n_next + BATCH_SIZE - 1) // BATCH_SIZE
         
-        scratch_maps = np.full((n_threads, n_next), -1, dtype=np.int64)
-        scratch_vals = np.zeros((n_threads, n_next), dtype=np.float32)
-        scratch_cols = np.zeros((n_threads, n_next), dtype=np.int64)
+        # Allocate reduced-size scratch buffers
+        scratch_maps = np.full((active_threads, n_next), -1, dtype=np.int32)
+        scratch_vals = np.zeros((active_threads, n_next), dtype=np.float32)
+        scratch_cols = np.zeros((active_threads, n_next), dtype=np.int32)
         
         for b in range(num_batches):
             start = b * BATCH_SIZE
@@ -575,39 +596,29 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
             
             unique_parents = get_batch_parents_sorted(start, end, up_map, parent_id_buffer)
             
-            # 1. Calculate required size for this batch (No Data Copy yet)
             total_req_size = 0
             for uid in unique_parents:
-                # We use len() on the numpy array directly.
-                # prev_cols[uid] is the indices array.
                 total_req_size += len(prev_cols[uid])
             
-            # 2. Resize buffers if necessary (Exponential growth to amortize cost)
             if total_req_size > current_buf_cap:
                 while current_buf_cap < total_req_size:
                     current_buf_cap *= 2
-                shared_indices_buf = np.empty(current_buf_cap, dtype=np.int64)
+                shared_indices_buf = np.empty(current_buf_cap, dtype=np.int32)
                 shared_data_buf = np.empty(current_buf_cap, dtype=np.float32)
             
-            # 3. Fill Buffer (Replaces np.concatenate)
-            # This loop performs slice assignments which are fast in Numpy
-            # and avoids allocating new temporary arrays.
             current_ptr = 0
             for uid in unique_parents:
                 p_col = prev_cols[uid]
                 p_val = prev_vals[uid]
                 length = len(p_col)
                 
-                # Copy data to shared buffer
                 shared_indices_buf[current_ptr : current_ptr + length] = p_col
                 shared_data_buf[current_ptr : current_ptr + length] = p_val
                 
-                # Update map for Numba
                 global_K_starts[uid] = current_ptr
                 current_ptr += length
                 global_K_ends[uid] = current_ptr
             
-            # 4. Create views (Zero Copy) to pass to Numba
             batch_prev_indices = shared_indices_buf[:total_req_size]
             batch_prev_data = shared_data_buf[:total_req_size]
 
@@ -635,17 +646,29 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
             
             bulk_decrement_counts(usage_counts, start, end, up_map)
 
-            # Free memory
             for uid in unique_parents:
                 if usage_counts[uid] <= 0:
                     prev_cols[uid] = None
                     prev_vals[uid] = None
-            
+        
+        # Reset threads for other parts of code? 
+        # Generally safer to leave it until next generation recalculation
+        
         prev_cols = next_cols
         prev_vals = next_vals
         current_self_kinships = next_self_kinships
         
         del next_cols, next_vals, up_map, down_indices, down_indptr
+        del scratch_maps, scratch_vals, scratch_cols
+    
+    # Restore threads
+    set_num_threads(original_thread_count)
+
+    # === MEMORY FIX: CLEAN LARGE BUFFERS BEFORE FINALIZATION ===
+    del shared_indices_buf, shared_data_buf, global_K_starts, global_K_ends, cuts_mapped, parent_id_buffer
+    del father_indices, mother_indices
+    gc_.collect()
+    # ===========================================================
     
     if verbose: print("Finalizing matrix construction...")
     
@@ -664,8 +687,8 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
         final_indptr = np.empty(n_next + 1, dtype=np.int64)
         final_indptr[0] = 0
 
-        # Pass 1: Indices (Int64)
-        final_indices = np.empty(total_nnz, dtype=np.int64)
+        # Pass 1: Indices (Int32)
+        final_indices = np.empty(total_nnz, dtype=np.int32)
         current_ptr = 0
         for i in range(n_next):
             cols = prev_cols[i]
@@ -673,10 +696,10 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
             final_indices[current_ptr : current_ptr + length] = cols
             final_indptr[i+1] = current_ptr + length
             
-            prev_cols[i] = None # Release immediately
+            prev_cols[i] = None
             current_ptr += length
             
-        gc_.collect() # Force reclaim of Int64 arrays
+        gc_.collect()
         
         # Pass 2: Data (Float32)
         final_data = np.empty(total_nnz, dtype=np.float32)
@@ -686,7 +709,7 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
             length = len(vals)
             final_data[current_ptr : current_ptr + length] = vals
             
-            prev_vals[i] = None # Release immediately
+            prev_vals[i] = None
             current_ptr += length
             
         del prev_cols, prev_vals
@@ -724,11 +747,11 @@ def compute_kinships_sparse(gen, pro=None, dense_output=False, verbose=False):
 
     n_founders = len(cuts_mapped[0])
     current_data = np.full(n_founders, 0.5, dtype=np.float32)
-    current_indices = np.arange(n_founders, dtype=np.int64) 
+    current_indices = np.arange(n_founders, dtype=np.int32) # int32
     current_indptr = np.arange(n_founders + 1, dtype=np.int64)
     current_self_kinships = np.full(n_founders, 0.5, dtype=np.float32)
     
-    n_threads = get_num_threads()
+    original_thread_count = get_num_threads()
     
     if len(cuts_mapped) == 1 and dense_output:
          mat = np.zeros((n_founders, n_founders), dtype=np.float32)
@@ -751,11 +774,16 @@ def compute_kinships_sparse(gen, pro=None, dense_output=False, verbose=False):
             n_next, next_cut, prev_map, father_indices, mother_indices
         )
         
+        # Dynamic Threads
+        active_threads = get_optimal_thread_count(n_next, max_buffer_bytes=1024**3)
+        set_num_threads(active_threads)
+        
         is_last_step = (t == len(cuts_mapped) - 2)
         
         if is_last_step and dense_output:
             if verbose: print("Computing final generation directly to dense matrix...")
-            scratch_vals = np.zeros((n_threads, n_next), dtype=np.float32)
+            # Scratch vals: 4 bytes * n_next per thread
+            scratch_vals = np.zeros((active_threads, n_next), dtype=np.float32)
             
             dense_result = compute_last_generation_dense(
                 n_next,
@@ -767,12 +795,13 @@ def compute_kinships_sparse(gen, pro=None, dense_output=False, verbose=False):
             )
             del up_map, down_indices, down_indptr, scratch_vals
             gc_.collect()
+            set_num_threads(original_thread_count)
             return dense_result
             
         else:
-            scratch_maps = np.full((n_threads, n_next), -1, dtype=np.int64)
-            scratch_vals = np.zeros((n_threads, n_next), dtype=np.float32)
-            scratch_cols = np.zeros((n_threads, n_next), dtype=np.int64)
+            scratch_maps = np.full((active_threads, n_next), -1, dtype=np.int32)
+            scratch_vals = np.zeros((active_threads, n_next), dtype=np.float32)
+            scratch_cols = np.zeros((active_threads, n_next), dtype=np.int32)
             
             next_indices, next_indptr, next_data, next_self = compute_generation_fused(
                 n_next,
@@ -794,7 +823,8 @@ def compute_kinships_sparse(gen, pro=None, dense_output=False, verbose=False):
             del scratch_maps, scratch_vals, scratch_cols
             if t % 5 == 0:
                 gc_.collect()
-
+    
+    set_num_threads(original_thread_count)
     return csr_matrix((current_data, current_indices, current_indptr), 
                       shape=(n_next, n_next))
 
