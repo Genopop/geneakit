@@ -413,90 +413,77 @@ def compute_last_generation_dense(
     return K_next
 
 # ---------------------------------------------------------
-# Low Memory Utils
+# Low Memory Utils (Optimized)
 # ---------------------------------------------------------
 
 @njit(cache=True)
 def get_usage_counts(n_next, up_map, n_prev):
     """
     Counts how many times each parent in the previous generation is used.
-    
-    LOGICAL VALIDITY:
-    This function establishes the reference counts for the "low memory" algorithm.
-    Mathematically, a row 'p' in K_prev is needed to compute the row 'c' in K_next
-    if 'p' is a parent of 'c'. 
-    
-    This function iterates over all 'c' in the next generation (n_next) and 
-    increments the count for their parents. This ensures we know exactly how 
-    many times the vector K_prev[p] will be accessed during the linear 
-    combination step of the kinship calculation.
     """
     counts = np.zeros(n_prev, dtype=np.int32)
     for i in range(n_next):
         p1 = up_map[i, 0]
         p2 = up_map[i, 1]
         if p1 >= 0: counts[p1] += 1
-        if p2 >= 0: counts[p2] += 1
+        if p2 >= 0 and p2 != -2: counts[p2] += 1
     return counts
 
 @njit(cache=True)
-def identify_batch_parents(batch_len, batch_start, up_map):
+def get_batch_parents_sorted(batch_start, batch_end, up_map, temp_buffer):
     """
-    Identifies unique parents for a batch (indices are GLOBAL).
+    Identifies unique parents for a batch using a pre-allocated buffer.
+    Returns a slice of the buffer containing unique sorted parents.
     """
-    temp_parents = np.empty(batch_len * 2, dtype=np.int64)
     ptr = 0
-    for i in range(batch_len):
-        global_ind = batch_start + i
-        p1 = up_map[global_ind, 0]
-        p2 = up_map[global_ind, 1]
+    for i in range(batch_start, batch_end):
+        p1 = up_map[i, 0]
+        p2 = up_map[i, 1]
         if p1 >= 0:
-            temp_parents[ptr] = p1
+            temp_buffer[ptr] = p1
             ptr += 1
         if p2 >= 0 and p2 != -2:
-            temp_parents[ptr] = p2
+            temp_buffer[ptr] = p2
             ptr += 1
             
-    temp_parents_view = temp_parents[:ptr]
-    temp_parents_view.sort()
+    if ptr == 0:
+        return temp_buffer[:0]
+        
+    # Sort the used portion of the buffer
+    view = temp_buffer[:ptr]
+    view.sort()
     
-    unique_count = 0
-    if ptr > 0:
-        unique_count = 1
-        for i in range(1, ptr):
-            if temp_parents_view[i] != temp_parents_view[i-1]:
-                unique_count += 1
-                
-    unique_parents = np.empty(unique_count, dtype=np.int64)
-    if ptr > 0:
-        unique_parents[0] = temp_parents_view[0]
-        w = 1
-        for i in range(1, ptr):
-            if temp_parents_view[i] != temp_parents_view[i-1]:
-                unique_parents[w] = temp_parents_view[i]
-                w += 1
-                
-    return unique_parents
+    # Unique pass (in-place logic, writing to output array)
+    # We count first to allocate exact size for the return array
+    unique_count = 1
+    for i in range(1, ptr):
+        if view[i] != view[i-1]:
+            unique_count += 1
+            
+    out = np.empty(unique_count, dtype=np.int64)
+    out[0] = view[0]
+    k = 1
+    for i in range(1, ptr):
+        if view[i] != view[i-1]:
+            out[k] = view[i]
+            k += 1
+            
+    return out
+
+@njit(cache=True)
+def bulk_decrement_counts(usage_counts, batch_start, batch_end, up_map):
+    """
+    Efficiently decrements usage counts for the processed batch.
+    """
+    for i in range(batch_start, batch_end):
+        p1 = up_map[i, 0]
+        p2 = up_map[i, 1]
+        if p1 >= 0: 
+            usage_counts[p1] -= 1
+        if p2 >= 0 and p2 != -2: 
+            usage_counts[p2] -= 1
 
 def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=False):
-    """
-    Low memory version of sparse kinship computation.
-    
-    LOGICAL SOUNDNESS:
-    This function implements the recursive kinship calculation K_next = P * K_prev * P.T + D
-    identical to the standard version, ensuring mathematical correctness.
-    
-    MEMORY OPTIMIZATION STRATEGY:
-    1. The 'prev_rows' structure stores K_prev (the kinship matrix of the parent generation).
-    2. Instead of holding the entire K_prev in memory while computing K_next, we process K_next
-       in batches.
-    3. We track 'usage_counts' (reference counting) for every row in K_prev.
-    4. As soon as a parent row's usage count drops to zero (meaning all children in the 
-       next generation have consumed its data), that row is immediately deleted (set to None).
-       
-    This ensures that the peak memory usage is proportional to the 'active frontier' of the 
-    pedigree graph rather than the total size of the generation matrices.
-    """
     if pro is None:
         pro = cgeneakit.get_proband_ids(gen)
 
@@ -510,7 +497,7 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
         if individual.mother.ind:
             mother_indices[individual.rank] = individual.mother.rank
 
-    if verbose: print("Computing vertex cuts (Low Memory)...")
+    if verbose: print("Computing vertex cuts (Low Memory Optimized)...")
     raw_vertex_cuts = cut_vertices(gen, pro)
     cuts_mapped = []
     for cut in raw_vertex_cuts:
@@ -522,19 +509,31 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
         return empty_ret.toarray() if dense_output else empty_ret
 
     n_founders = len(cuts_mapped[0])
-    prev_rows = []
+    # Store columns and values separately to avoid tuple unpacking overhead later
+    prev_cols = []
+    prev_vals = []
     for k in range(n_founders):
-        prev_rows.append( (np.array([k], dtype=np.int64), np.array([0.5], dtype=np.float32)) )
+        prev_cols.append(np.array([k], dtype=np.int64))
+        prev_vals.append(np.array([0.5], dtype=np.float32))
     
     current_self_kinships = np.full(n_founders, 0.5, dtype=np.float32)
     
     n_threads = get_num_threads()
-    BATCH_SIZE = 4096
+    BATCH_SIZE = 1024
     
     max_cut_size = max(len(c) for c in cuts_mapped)
     
     global_K_starts = np.zeros(max_cut_size + 1, dtype=np.int64)
     global_K_ends = np.zeros(max_cut_size + 1, dtype=np.int64)
+    
+    parent_id_buffer = np.empty(BATCH_SIZE * 2, dtype=np.int64)
+    
+    # --- PRE-ALLOCATED REUSABLE BUFFERS ---
+    # Start with a reasonable size (e.g., 10 MB elements) to minimize resizing
+    # but small enough not to hog RAM if pedigree is small.
+    current_buf_cap = 1024 * 1024 
+    shared_indices_buf = np.empty(current_buf_cap, dtype=np.int64)
+    shared_data_buf = np.empty(current_buf_cap, dtype=np.float32)
     
     for t in range(len(cuts_mapped) - 1):
         current_cut = cuts_mapped[t]
@@ -555,12 +554,10 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
         down_starts = down_indptr[:-1]
         down_ends = down_indptr[1:]
         
-        # Initialize Reference Counts:
-        # Calculate exactly how many times each parent (in current_cut) is referenced
-        # by children in the next generation (next_cut).
         usage_counts = get_usage_counts(n_next, up_map, n_prev)
         
-        next_rows = [None] * n_next
+        next_cols = [None] * n_next
+        next_vals = [None] * n_next
         next_self_kinships = np.zeros(n_next, dtype=np.float32)
         
         num_batches = (n_next + BATCH_SIZE - 1) // BATCH_SIZE
@@ -569,7 +566,6 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
         scratch_vals = np.zeros((n_threads, n_next), dtype=np.float32)
         scratch_cols = np.zeros((n_threads, n_next), dtype=np.int64)
         
-        # Batch Processing Loop
         for b in range(num_batches):
             start = b * BATCH_SIZE
             end = min(start + BATCH_SIZE, n_next)
@@ -577,41 +573,49 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
             
             batch_up_map = up_map[start:end] 
             
-            # Optimization: Identify only the parents needed for THIS batch.
-            # This minimizes the amount of data passed to the numba kernel.
-            unique_parents = identify_batch_parents(batch_len, start, up_map)
-            n_batch_parents = len(unique_parents)
+            unique_parents = get_batch_parents_sorted(start, end, up_map, parent_id_buffer)
             
-            p_data = []
-            p_indices = []
+            # 1. Calculate required size for this batch (No Data Copy yet)
+            total_req_size = 0
+            for uid in unique_parents:
+                # We use len() on the numpy array directly.
+                # prev_cols[uid] is the indices array.
+                total_req_size += len(prev_cols[uid])
             
+            # 2. Resize buffers if necessary (Exponential growth to amortize cost)
+            if total_req_size > current_buf_cap:
+                while current_buf_cap < total_req_size:
+                    current_buf_cap *= 2
+                shared_indices_buf = np.empty(current_buf_cap, dtype=np.int64)
+                shared_data_buf = np.empty(current_buf_cap, dtype=np.float32)
+            
+            # 3. Fill Buffer (Replaces np.concatenate)
+            # This loop performs slice assignments which are fast in Numpy
+            # and avoids allocating new temporary arrays.
             current_ptr = 0
             for uid in unique_parents:
-                # Access parent data. If logic fails, prev_rows[uid] would be None here,
-                # raising an error. Correct reference counting prevents this.
-                cols, vals = prev_rows[uid]
-                p_data.append(vals)
-                p_indices.append(cols)
+                p_col = prev_cols[uid]
+                p_val = prev_vals[uid]
+                length = len(p_col)
                 
-                length = len(vals)
+                # Copy data to shared buffer
+                shared_indices_buf[current_ptr : current_ptr + length] = p_col
+                shared_data_buf[current_ptr : current_ptr + length] = p_val
+                
+                # Update map for Numba
                 global_K_starts[uid] = current_ptr
-                global_K_ends[uid] = current_ptr + length
                 current_ptr += length
+                global_K_ends[uid] = current_ptr
             
-            if n_batch_parents > 0:
-                batch_prev_data = np.concatenate(p_data) if p_data else np.array([], dtype=np.float32)
-                batch_prev_indices = np.concatenate(p_indices) if p_indices else np.array([], dtype=np.int64)
-            else:
-                batch_prev_data = np.array([], dtype=np.float32)
-                batch_prev_indices = np.array([], dtype=np.int64)
+            # 4. Create views (Zero Copy) to pass to Numba
+            batch_prev_indices = shared_indices_buf[:total_req_size]
+            batch_prev_data = shared_data_buf[:total_req_size]
 
-            # Compute K_next values for this batch.
-            # Mathematically: phi_child = 0.5 * phi_parent1 + 0.5 * phi_parent2
             b_indices, b_indptr, b_data, b_diags = compute_generation_fused(
                 batch_len,
                 start, 
-                batch_up_map, # Sliced Map
-                up_map,       # Full Map
+                batch_up_map, 
+                up_map,       
                 down_indices, down_starts, down_ends,
                 batch_prev_indices, global_K_starts, global_K_ends, batch_prev_data,
                 current_self_kinships,
@@ -621,63 +625,76 @@ def compute_kinships_sparse_low_mem(gen, pro=None, dense_output=False, verbose=F
             for i in range(batch_len):
                 row_start = b_indptr[i]
                 row_end = b_indptr[i+1]
-                r_cols = b_indices[row_start:row_end].copy()
-                r_vals = b_data[row_start:row_end].copy()
-                next_rows[start + i] = (r_cols, r_vals)
+                next_cols[start + i] = b_indices[row_start:row_end].copy()
+                next_vals[start + i] = b_data[row_start:row_end].copy()
                 next_self_kinships[start + i] = b_diags[i]
             
             for uid in unique_parents:
                 global_K_starts[uid] = 0
                 global_K_ends[uid] = 0
             
-            # --- SAFE MEMORY RECLAMATION ---
-            # 1. Calculate usages specifically within this batch.
-            batch_counts = get_usage_counts(batch_len, batch_up_map, n_prev)
-            
+            bulk_decrement_counts(usage_counts, start, end, up_map)
+
+            # Free memory
             for uid in unique_parents:
-                # 2. Decrement global reference count for this parent.
-                usage_counts[uid] -= batch_counts[uid]
-                
-                # 3. If usage count hits zero, this parent's row (vector) is no longer
-                #    needed for ANY future calculation in this generation.
-                #    Mathematically safe to discard.
                 if usage_counts[uid] <= 0:
-                    prev_rows[uid] = None
+                    prev_cols[uid] = None
+                    prev_vals[uid] = None
             
-            # 4. Trigger GC periodically to actually free the None-d memory blocks.
-            if b % 5 == 0:
-                gc_.collect()
-        
-        prev_rows = next_rows
+        prev_cols = next_cols
+        prev_vals = next_vals
         current_self_kinships = next_self_kinships
-        del next_rows
-        del up_map, down_indices, down_indptr
-        gc_.collect()
+        
+        del next_cols, next_vals, up_map, down_indices, down_indptr
     
     if verbose: print("Finalizing matrix construction...")
     
     if dense_output:
-        n = len(prev_rows)
+        n = len(prev_cols)
         mat = np.zeros((n, n), dtype=np.float32)
         for i in range(n):
-            cols, vals = prev_rows[i]
-            mat[i, cols] = vals
+            mat[i, prev_cols[i]] = prev_vals[i]
         return mat
     else:
-        all_cols = []
-        all_vals = []
-        indptr = np.zeros(n_next + 1, dtype=np.int64)
-        cur = 0
-        for i in range(n_next):
-            cols, vals = prev_rows[i]
-            all_cols.append(cols)
-            all_vals.append(vals)
-            cur += len(cols)
-            indptr[i+1] = cur
+        # --- LOW MEMORY FINALIZATION (Two-Pass) ---
+        total_nnz = 0
+        for cols in prev_cols:
+            total_nnz += len(cols)
             
-        return csr_matrix((np.concatenate(all_vals), np.concatenate(all_cols), indptr), 
-                          shape=(n_next, n_next))
+        final_indptr = np.empty(n_next + 1, dtype=np.int64)
+        final_indptr[0] = 0
 
+        # Pass 1: Indices (Int64)
+        final_indices = np.empty(total_nnz, dtype=np.int64)
+        current_ptr = 0
+        for i in range(n_next):
+            cols = prev_cols[i]
+            length = len(cols)
+            final_indices[current_ptr : current_ptr + length] = cols
+            final_indptr[i+1] = current_ptr + length
+            
+            prev_cols[i] = None # Release immediately
+            current_ptr += length
+            
+        gc_.collect() # Force reclaim of Int64 arrays
+        
+        # Pass 2: Data (Float32)
+        final_data = np.empty(total_nnz, dtype=np.float32)
+        current_ptr = 0
+        for i in range(n_next):
+            vals = prev_vals[i]
+            length = len(vals)
+            final_data[current_ptr : current_ptr + length] = vals
+            
+            prev_vals[i] = None # Release immediately
+            current_ptr += length
+            
+        del prev_cols, prev_vals
+        gc_.collect()
+        
+        return csr_matrix((final_data, final_indices, final_indptr), 
+                          shape=(n_next, n_next))
+                
 def compute_kinships_sparse(gen, pro=None, dense_output=False, verbose=False):
     if pro is None:
         pro = cgeneakit.get_proband_ids(gen)
