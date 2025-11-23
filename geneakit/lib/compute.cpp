@@ -274,21 +274,38 @@ compute_kinships_sparse(Pedigree<> &pedigree, std::vector<int> proband_ids, bool
         self_kinships = std::move(next_self_kinships);
     }
 
-    // Finalize
+    // Finalize - OPTIMIZED VERSION WITH PRE-ALLOCATION
     int n_final = prev_rows.size();
+
+    // Step 1: Calculate total size needed (single pass to avoid reallocations)
+    size_t total_nnz = 0;
+    for (int i = 0; i < n_final; ++i) {
+        total_nnz += prev_rows[i].cols.size();
+    }
+
+    // Step 2: Pre-allocate exact sizes needed - NO REALLOCATIONS
     std::vector<float> final_data;
     std::vector<int> final_indices;
     std::vector<int64_t> final_indptr;
-    final_indptr.reserve(n_final + 1);
+
+    final_data.reserve(total_nnz);        // Pre-allocate exact space
+    final_indices.reserve(total_nnz);     // Pre-allocate exact space
+    final_indptr.reserve(n_final + 1);    // Already done, but explicit
+
     final_indptr.push_back(0);
 
+    // Step 3: Single-pass assembly with NO reallocations
     for (int i = 0; i < n_final; ++i) {
-        final_indices.insert(final_indices.end(), prev_rows[i].cols.begin(), prev_rows[i].cols.end());
-        final_data.insert(final_data.end(), prev_rows[i].vals.begin(), prev_rows[i].vals.end());
+        const SparseRow& row = prev_rows[i];
+        
+        // These inserts will NEVER trigger reallocation because we reserved exactly
+        final_indices.insert(final_indices.end(), row.cols.begin(), row.cols.end());
+        final_data.insert(final_data.end(), row.vals.begin(), row.vals.end());
+        
         final_indptr.push_back(final_data.size());
-        prev_rows[i].clear();
+        prev_rows[i].clear();  // Free memory as we go
     }
-
+    
     return {final_data, final_indices, final_indptr};
 }
 
