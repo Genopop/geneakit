@@ -90,7 +90,23 @@ def phi(gen, **kwargs):
     return kinship_matrix
 
 def phiMean(kinship_matrix):
-    """Calculate mean kinship coefficient excluding self-pairs"""
+    """Calculate mean kinship coefficient excluding self-pairs
+    
+    Args:
+        kinship_matrix (pd.DataFrame | csr_matrix): Kinship matrix from gen.phi()
+        
+    Returns:
+        float: Mean kinship coefficient across all unique proband pairs
+        
+    Examples:
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
+        >>> kin_mat = gen.phi(ped)
+        >>> mean_phi = gen.phiMean(kin_mat)
+        >>> print(f"Average kinship: {mean_phi:.4f}")
+        Average kinship: 0.1719
+    """
     if issparse(kinship_matrix) or hasattr(kinship_matrix, "sparse"):
         if isinstance(kinship_matrix, pd.DataFrame):
              total = kinship_matrix.sum().sum()
@@ -100,6 +116,8 @@ def phiMean(kinship_matrix):
         else:
             total = kinship_matrix.sum()
             diag_sum = kinship_matrix.diagonal().sum()
+            # Lower triangular matrix: double off-diagonal sum
+            total = (total - diag_sum) * 2 + diag_sum
     else:
         total = kinship_matrix.sum().sum()
         if isinstance(kinship_matrix, pd.DataFrame):
@@ -111,7 +129,27 @@ def phiMean(kinship_matrix):
     return (total - diag_sum) / (n**2 - n)
 
 def phiOver(phiMatrix, threshold):
-    """Identify proband pairs exceeding kinship threshold"""
+    """Identify proband pairs exceeding kinship threshold
+    
+    Args:
+        phiMatrix (pd.DataFrame | csr_matrix): Kinship matrix from gen.phi()
+        threshold (float): Minimum kinship value (0-0.5+)
+        
+    Returns:
+        pd.DataFrame: Pairs exceeding threshold with columns:
+            - pro1, pro2: Individual IDs if DataFrame input; indices if csr_matrix input
+            - kinship: Coefficient value
+            
+    Examples:
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
+        >>> kin_mat = gen.phi(ped)
+        >>> high_kinship = gen.phiOver(kin_mat, 0.1)
+        >>> print(high_kinship)
+           pro1  pro2   kinship
+        0     2     1  0.371094
+    """
     pairs = []
     
     is_sp = issparse(phiMatrix) or hasattr(phiMatrix, "sparse")
@@ -148,10 +186,32 @@ def phiOver(phiMatrix, threshold):
     return pd.DataFrame(pairs)
 
 def phiCI(phiMatrix, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
-    """Calculate bootstrap confidence intervals for mean kinship"""
+    """Calculate bootstrap confidence intervals for mean kinship
+    
+    Args:
+        phiMatrix (pd.DataFrame | np.ndarray | csr_matrix): Kinship matrix
+        prob (list): Confidence probabilities (default: 95% CI)
+        b (int): Bootstrap resamples (default: 5000)
+        
+    Returns:
+        pd.DataFrame: Confidence bounds for each probability pair
+        
+    Examples:
+        >>> import geneakit as gen
+        >>> from geneakit import genea140
+        >>> ped = gen.genealogy(genea140)
+        >>> kin_mat = gen.phi(ped)
+        >>> ci = gen.phiCI(kin_mat)
+        >>> print(ci)
+                  2.5%      5.0%     95.0%     97.5%
+        Mean  0.000886  0.000924  0.001388  0.001442
+    """
     phi_array = phiMatrix.to_numpy() if isinstance(phiMatrix, pd.DataFrame) else phiMatrix
     if issparse(phiMatrix):
         phi_array = phiMatrix.toarray() 
+        if isinstance(phiMatrix, csr_matrix):
+            # Convert CSR to dense array and symmetrize
+            phi_array = phi_array + phi_array.T - np.diag(np.diag(phi_array))
 
     n = phi_array.shape[0]
     data = (np.arange(n),)
@@ -187,7 +247,28 @@ def phiCI(phiMatrix, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
     return pd.DataFrame([results], columns=[f"{p*100}%" for p in prob], index=["Mean"])
 
 def f(gen, **kwargs):
-    """Calculate inbreeding coefficients (F) for probands"""
+    """Calculate inbreeding coefficients (F) for probands
+    
+    Args:
+        gen (cgeneakit.Pedigree): Initialized genealogy object
+        pro (list, optional): Proband IDs (default: all)
+        
+    Returns:
+        pd.DataFrame: Inbreeding coefficients with:
+            - Index: Proband IDs
+            - Column: 'F' values (0-1)
+            
+    Examples:
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
+        >>> inbreeding = gen.f(ped)
+        >>> print(inbreeding)
+                   F
+        1   0.183594
+        2   0.183594
+        29  0.070312
+    """
     pro = kwargs.get('pro', None)
     if pro is None:
         pro = cgeneakit.get_proband_ids(gen)
@@ -195,7 +276,26 @@ def f(gen, **kwargs):
     return pd.DataFrame(cmatrix, index=pro, columns=['F'], copy=False)
 
 def fCI(vectF, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
-    """Calculate BCa bootstrap confidence intervals for mean inbreeding"""
+    """Calculate BCa bootstrap confidence intervals for mean inbreeding
+    
+    Args:
+        vectF (pd.DataFrame | np.ndarray): Inbreeding coefficients
+        prob (list): Confidence probabilities
+        b (int): Bootstrap resamples
+        
+    Returns:
+        pd.DataFrame: Confidence bounds using bias-corrected method
+        
+    Examples:
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
+        >>> inbreeding = gen.f(ped)
+        >>> f_ci = gen.fCI(inbreeding)
+        >>> print(f_ci)
+                  2.5%      5.0%     95.0%     97.5%
+        Mean  0.070312  0.070312  0.183594  0.183594
+    """
     f_array = vectF.to_numpy() if isinstance(vectF, pd.DataFrame) else np.array(vectF)
     n = f_array.shape[0]
     data = (np.arange(n),)
@@ -230,7 +330,30 @@ def fCI(vectF, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
     return pd.DataFrame([results], columns=[f"{p*100}%" for p in prob], index=["Mean"])
 
 def gc(pedigree, **kwargs):
-    """Compute genetic contribution of ancestors to probands"""
+    """Compute genetic contribution of ancestors to probands
+    
+    Args:
+        pedigree (cgeneakit.Pedigree): Initialized genealogy object
+        pro (list, optional): Proband IDs (default: all)
+        ancestors (list, optional): Founder IDs (default: all founders)
+        
+    Returns:
+        pd.DataFrame: Contribution matrix with:
+            - Rows: Proband IDs
+            - Columns: Ancestor IDs
+            - Values: Expected genetic contributions
+            
+    Examples:
+        >>> import geneakit as gen
+        >>> from geneakit import geneaJi
+        >>> ped = gen.genealogy(geneaJi)
+        >>> contributions = gen.gc(ped)
+        >>> print(contributions)
+                17       19      20    23        25        26
+        1   0.3125  0.21875  0.0625  0.00  0.109375  0.109375
+        2   0.3125  0.21875  0.0625  0.00  0.109375  0.109375
+        29  0.1250  0.06250  0.2500  0.25  0.156250  0.156250
+    """
     pro = kwargs.get('pro', None)
     ancestors = kwargs.get('ancestors', None)
     if pro is None:
