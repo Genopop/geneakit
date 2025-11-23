@@ -16,7 +16,6 @@ def phi(gen, **kwargs):
         sparse (bool, default False): Use sparse computation algorithm (experimental!).
         raw (bool, default False): If True:
             - Sparse mode: returns (csr_matrix, ids). Matrix is LOWER TRIANGULAR.
-            - Dense mode: returns (ndarray, ids).
             If False (default): returns pd.DataFrame (SparseDataFrame if sparse=True).
     
     Returns:
@@ -46,9 +45,6 @@ def phi(gen, **kwargs):
             data, indices, indptr = cgeneakit.compute_kinships_sparse(
                 gen, pro, verbose, False
             )
-            data = np.array(data, copy=True)
-            indices = np.array(indices, copy=True)
-            indptr = np.array(indptr, copy=True)
             
             lt_matrix = csr_matrix(
                 (data, indices, indptr), 
@@ -67,14 +63,12 @@ def phi(gen, **kwargs):
             data, rows, cols = cgeneakit.compute_kinships_sparse(
                 gen, pro, verbose, True
             )
-            data = np.array(data, copy=True)
-            rows = np.array(rows, copy=True)
-            cols = np.array(cols, copy=True)
             
             # Create Symmetric COO Matrix directly from C++ vectors
             sym_matrix = coo_matrix(
                 (data, (rows, cols)), 
-                shape=(len(pro), len(pro))
+                shape=(len(pro), len(pro)),
+                copy=False
             )
             
             # Create Sparse DataFrame directly
