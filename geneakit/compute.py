@@ -46,6 +46,9 @@ def phi(gen, **kwargs):
             data, indices, indptr = cgeneakit.compute_kinships_sparse(
                 gen, pro, verbose, False
             )
+            data = np.array(data, copy=True)
+            indices = np.array(indices, copy=True)
+            indptr = np.array(indptr, copy=True)
             
             lt_matrix = csr_matrix(
                 (data, indices, indptr), 
@@ -64,6 +67,9 @@ def phi(gen, **kwargs):
             data, rows, cols = cgeneakit.compute_kinships_sparse(
                 gen, pro, verbose, True
             )
+            data = np.array(data, copy=True)
+            rows = np.array(rows, copy=True)
+            cols = np.array(cols, copy=True)
             
             # Create Symmetric COO Matrix directly from C++ vectors
             sym_matrix = coo_matrix(
