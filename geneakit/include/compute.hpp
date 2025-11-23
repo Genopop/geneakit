@@ -114,9 +114,6 @@ Matrix<double> compute_kinships(
     Pedigree<> &pedigree, std::vector<int> proband_ids = {},
     bool verbose = false);
 
-// Returns the mean kinship coefficient of a kinship matrix.
-double compute_mean_kinship(Matrix<double> &kinship_matrix);
-
 // Returns the inbreeding coefficients of a vector of individuals.
 // Copied from the article by M Sargolzaei, H Iwaisaki & J-J Colleau (2005).
 std::vector<double> compute_inbreedings(Pedigree<> &pedigree,

@@ -406,9 +406,6 @@ NB_MODULE(cgeneakit, m) {
     m.def("compute_inbreedings", &compute_inbreedings,
         "Returns the inbreeding coefficients of probands.");
     
-    m.def("compute_mean_kinship", &compute_mean_kinship,
-        "Returns the mean kinship coefficient of a kinship matrix.");
-
     m.def("compute_genetic_contributions", [] (Pedigree<> &pedigree,
     std::vector<int> proband_ids, std::vector<int> ancestor_ids) {
         Matrix<double> contribution_matrix = compute_genetic_contributions(

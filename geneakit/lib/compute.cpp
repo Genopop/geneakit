@@ -683,20 +683,6 @@ Matrix<double> compute_kinships(Pedigree<> &pedigree,
     return founder_matrix;
 }
 
-// Returns the mean kinship coefficient of a kinship matrix.
-double compute_mean_kinship(Matrix<double> &kinship_matrix) {
-    // Initialize the mean kinship coefficient
-    double total = 0.0;
-    // Compute the mean kinship coefficient
-    for (int i = 0; i < (int) kinship_matrix.size(); i++) {
-        for (int j = 0; j < i; j++) {
-            total += kinship_matrix[i][j];
-        }
-    }
-    uint64_t count = (kinship_matrix.size() * (kinship_matrix.size() - 1)) / 2;
-    return total / count;
-}
-
 // Sort animals according to ID of their sires into SId.
 void MyQuickSort(int **Ped, int *SId, int size) {
     std::function<void(int, int)> quicksort = [&](int left, int right) {
