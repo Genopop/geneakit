@@ -13,7 +13,7 @@ def phi(gen, **kwargs):
         pro (list, optional): Proband IDs. Defaults to all probands.
         verbose (bool, default False): Print details.
         compute (bool, default True): Estimate memory if False.
-        sparse (bool, default False): Use sparse computation algorithm (graph cuts).
+        sparse (bool, default False): Use sparse computation algorithm (experimental!).
         raw (bool, default False): If True, returns (matrix, ids). If False, returns pd.DataFrame.
     
     Returns:
@@ -38,19 +38,21 @@ def phi(gen, **kwargs):
         
     if sparse:
         data, indices, indptr = cgeneakit.compute_kinships_sparse(gen, pro, verbose)
-        kinship_matrix = csr_matrix((data, indices, indptr), shape=(len(pro), len(pro)))
+        
+        kinship_matrix = csr_matrix(
+            (data, indices, indptr), 
+            shape=(len(pro), len(pro)),
+            copy=False
+        )
         
         if raw:
             if verbose:
                 print(f'Elapsed time: {round(time.time() - begin, 2)} seconds')
-            # Return raw matrix (dense ndarray or sparse csr) + ids
             return kinship_matrix, pro
-        
         else:
-            # Result is CSR matrix -> Sparse DataFrame
-            kinship_matrix = pd.DataFrame.sparse.from_spmatrix(
-                kinship_matrix, index=pro, columns=pro
-            )
+            if verbose:
+                print(f'Elapsed time: {round(time.time() - begin, 2)} seconds')
+            return kinship_matrix
 
     else:
         cmatrix = cgeneakit.compute_kinships(gen, pro, verbose)
