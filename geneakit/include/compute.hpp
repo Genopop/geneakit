@@ -41,9 +41,23 @@ SOFTWARE.
 #include "extract.hpp"
 #include "matrix.hpp"
 
+// Structure to hold sparse matrix results
+struct SparseResult {
+    std::vector<float> data;
+    std::vector<int> indices;    // Used for Columns (CSR & COO)
+    std::vector<int64_t> indptr; // Used for Row Pointers (CSR)
+    std::vector<int> rows;       // Used for Rows (COO)
+};
+
 // Returns the sparse kinship matrix
-std::tuple<std::vector<float>, std::vector<int>, std::vector<int64_t>>
-compute_kinships_sparse(Pedigree<> &pedigree, std::vector<int> proband_ids, bool verbose);
+// If symmetric_coo is true, returns (data, rows, cols) for symmetrical COO.
+// If symmetric_coo is false, returns (data, indices, indptr) for lower-triangular CSR.
+SparseResult compute_kinships_sparse(
+    Pedigree<> &pedigree, 
+    std::vector<int> proband_ids, 
+    bool verbose, 
+    bool symmetric_coo
+);
 
 // Returns the previous generation of a set of individuals.
 phmap::flat_hash_set<int> get_previous_generation(Pedigree<> &pedigree,

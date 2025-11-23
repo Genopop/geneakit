@@ -25,7 +25,7 @@ SOFTWARE.
 #include "../include/compute.hpp"
 
 // -----------------------------------------------------------------------------
-// Sparse Kinship Implementation Structures
+// Sparse Kinship Structures
 // -----------------------------------------------------------------------------
 
 struct SparseRow {
@@ -35,6 +35,11 @@ struct SparseRow {
     void clear() {
         std::vector<int>().swap(cols);
         std::vector<float>().swap(vals);
+    }
+    
+    void reserve(size_t n) {
+        cols.reserve(n);
+        vals.reserve(n);
     }
 };
 
@@ -47,8 +52,6 @@ build_maps_sparse(
     int n_next,
     const std::vector<int>& next_cut_ids,
     const phmap::flat_hash_map<int, int>& prev_map_lookup,
-    const std::vector<int>& father_indices,
-    const std::vector<int>& mother_indices,
     Pedigree<>& pedigree
 ) {
     std::vector<std::array<int, 2>> up_map(n_next, {-1, -1});
@@ -96,10 +99,12 @@ build_maps_sparse(
 // Main Sparse Kinship Function
 // -----------------------------------------------------------------------------
 
-// Returns the sparse kinship matrix
-std::tuple<std::vector<float>, std::vector<int>, std::vector<int64_t>>
-compute_kinships_sparse(Pedigree<> &pedigree, std::vector<int> proband_ids, bool verbose) {
-    
+SparseResult compute_kinships_sparse(
+    Pedigree<> &pedigree, 
+    std::vector<int> proband_ids, 
+    bool verbose, 
+    bool symmetric_coo
+) {
     if (proband_ids.empty()) {
         proband_ids = get_proband_ids(pedigree);
     }
@@ -108,7 +113,7 @@ compute_kinships_sparse(Pedigree<> &pedigree, std::vector<int> proband_ids, bool
     std::vector<std::vector<int>> cuts = cut_vertices(pedigree, proband_ids);
     
     if (cuts.empty()) {
-        return {{}, {}, {0}};
+        return {};
     }
 
     int n_founders = cuts[0].size();
@@ -117,10 +122,10 @@ compute_kinships_sparse(Pedigree<> &pedigree, std::vector<int> proband_ids, bool
 
     for (int i = 0; i < n_founders; ++i) {
         prev_rows[i].cols.push_back(i);
-        prev_rows[i].vals.push_back(0.5);
+        prev_rows[i].vals.push_back(0.5f);
     }
 
-    const int BATCH_SIZE = 1024;
+    const int BATCH_SIZE = 512;
 
     for (size_t t = 0; t < cuts.size() - 1; ++t) {
         const auto& current_cut = cuts[t];
@@ -139,10 +144,21 @@ compute_kinships_sparse(Pedigree<> &pedigree, std::vector<int> proband_ids, bool
             prev_map_lookup[current_cut[i]] = i;
         }
 
-        auto maps = build_maps_sparse(n_next, next_cut, prev_map_lookup, {}, {}, pedigree);
+        auto maps = build_maps_sparse(n_next, next_cut, prev_map_lookup, pedigree);
         const auto& up_map = std::get<0>(maps);
         const auto& down_map = std::get<1>(maps);
-        auto usage_counts = std::get<2>(maps);
+        
+        // Build Upper Triangle Adjacency
+        std::vector<std::vector<std::pair<int, float>>> ut_adj(n_prev);
+        for(int r = 0; r < n_prev; ++r) {
+            const auto& row = prev_rows[r];
+            for(size_t k = 0; k < row.cols.size(); ++k) {
+                int c = row.cols[k];
+                if (c != r) {
+                    ut_adj[c].push_back({r, row.vals[k]});
+                }
+            }
+        }
 
         std::vector<SparseRow> next_rows(n_next);
         std::vector<float> next_self_kinships(n_next);
@@ -155,9 +171,9 @@ compute_kinships_sparse(Pedigree<> &pedigree, std::vector<int> proband_ids, bool
 
             #pragma omp parallel 
             {
-                std::vector<float> dense_acc(n_next, 0.0);
+                std::vector<float> dense_acc(n_next, 0.0f);
                 std::vector<int> col_indices; 
-                col_indices.reserve(256);
+                col_indices.reserve(512);
                 std::vector<int> marker(n_next, 0);
                 int tag = 0;
 
@@ -177,25 +193,60 @@ compute_kinships_sparse(Pedigree<> &pedigree, std::vector<int> proband_ids, bool
 
                     for (int k = 0; k < p_count; ++k) {
                         int p_row = parents[k];
-                        float scaler = (is_copy) ? 1.0 : 0.5;
-                        const SparseRow& p_data = prev_rows[p_row];
+                        float scaler = (is_copy) ? 1.0f : 0.5f;
                         
+                        // Process Lower Triangle
+                        const SparseRow& p_data = prev_rows[p_row];
                         for (size_t idx = 0; idx < p_data.cols.size(); ++idx) {
                             int ancestor = p_data.cols[idx];
                             float kin_val = p_data.vals[idx] * scaler;
                             
                             const std::vector<int>& children_of_ancestor = down_map[ancestor];
-                            
                             for (int child_idx : children_of_ancestor) {
+                                if (child_idx > i) continue; 
+
                                 int c_p1 = up_map[child_idx][0];
                                 int c_p2 = up_map[child_idx][1];
-                                float child_scaler = 0.0;
+                                float child_scaler = 0.0f;
                                 
-                                if (c_p2 == -2) { // Copy
-                                    if (c_p1 == ancestor) child_scaler = 1.0;
+                                if (c_p2 == -2) {
+                                    if (c_p1 == ancestor) child_scaler = 1.0f;
                                 } else {
-                                    if (c_p1 == ancestor) child_scaler += 0.5;
-                                    if (c_p2 == ancestor) child_scaler += 0.5;
+                                    if (c_p1 == ancestor) child_scaler += 0.5f;
+                                    if (c_p2 == ancestor) child_scaler += 0.5f;
+                                }
+                                
+                                float contribution = kin_val * child_scaler;
+                                
+                                if (marker[child_idx] != tag) {
+                                    marker[child_idx] = tag;
+                                    dense_acc[child_idx] = contribution;
+                                    col_indices.push_back(child_idx);
+                                } else {
+                                    dense_acc[child_idx] += contribution;
+                                }
+                            }
+                        }
+
+                        // Process Upper Triangle
+                        const auto& ut_data = ut_adj[p_row];
+                        for (const auto& pair : ut_data) {
+                            int ancestor = pair.first;
+                            float kin_val = pair.second * scaler;
+                            
+                            const std::vector<int>& children_of_ancestor = down_map[ancestor];
+                            for (int child_idx : children_of_ancestor) {
+                                if (child_idx > i) continue; 
+
+                                int c_p1 = up_map[child_idx][0];
+                                int c_p2 = up_map[child_idx][1];
+                                float child_scaler = 0.0f;
+                                
+                                if (c_p2 == -2) { 
+                                    if (c_p1 == ancestor) child_scaler = 1.0f;
+                                } else {
+                                    if (c_p1 == ancestor) child_scaler += 0.5f;
+                                    if (c_p2 == ancestor) child_scaler += 0.5f;
                                 }
                                 
                                 float contribution = kin_val * child_scaler;
@@ -211,21 +262,17 @@ compute_kinships_sparse(Pedigree<> &pedigree, std::vector<int> proband_ids, bool
                         }
                     }
 
-                    // ---------------------------------------------------------
-                    // CORRECTED DIAGONAL LOGIC
-                    // ---------------------------------------------------------
-                    float diag_val = 0.0;
+                    // Diagonal Logic
+                    float diag_val = 0.0f;
                     if (is_copy) {
                         if (marker[i] == tag) diag_val = dense_acc[i];
-                        else diag_val = 0.5; // Should effectively match prev self
+                        else diag_val = 0.5f; 
                     } else {
-                        // Only subtract self-kinship if the parent effectively contributed to raw_val
-                        // (i.e., parent was in the previous cut and p_idx >= 0)
-                        float term_pp = (p1_idx >= 0) ? 0.25 * self_kinships[p1_idx] : 0.0;
-                        float term_mm = (p2_idx >= 0) ? 0.25 * self_kinships[p2_idx] : 0.0;
+                        float term_pp = (p1_idx >= 0) ? 0.25f * self_kinships[p1_idx] : 0.0f;
+                        float term_mm = (p2_idx >= 0) ? 0.25f * self_kinships[p2_idx] : 0.0f;
                         
-                        float raw_val = (marker[i] == tag) ? dense_acc[i] : 0.0;
-                        diag_val = 0.5 + raw_val - (term_pp + term_mm);
+                        float raw_val = (marker[i] == tag) ? dense_acc[i] : 0.0f;
+                        diag_val = 0.5f + raw_val - (term_pp + term_mm);
                     }
                     
                     if (marker[i] != tag) {
@@ -237,7 +284,6 @@ compute_kinships_sparse(Pedigree<> &pedigree, std::vector<int> proband_ids, bool
                     }
                     next_self_kinships[i] = diag_val;
 
-                    // Sort and Deduplicate for Pandas compatibility
                     std::sort(col_indices.begin(), col_indices.end());
                     auto last = std::unique(col_indices.begin(), col_indices.end());
                     col_indices.erase(last, col_indices.end());
@@ -247,66 +293,84 @@ compute_kinships_sparse(Pedigree<> &pedigree, std::vector<int> proband_ids, bool
                     
                     for (int col : col_indices) {
                         float val = dense_acc[col];
-                        if (std::abs(val) > 1e-12) {
+                        if (std::abs(val) > 1e-12f) {
                             next_rows[i].cols.push_back(col);
                             next_rows[i].vals.push_back(val);
                         }
                     }
                 }
             }
-
-            // Serial cleanup
-            for (int i = start; i < end; ++i) {
-                int p1 = up_map[i][0];
-                int p2 = up_map[i][1];
-                if (p1 >= 0) {
-                    usage_counts[p1]--;
-                    if (usage_counts[p1] <= 0) prev_rows[p1].clear();
-                }
-                if (p2 >= 0 && p2 != -2) {
-                    usage_counts[p2]--;
-                    if (usage_counts[p2] <= 0) prev_rows[p2].clear();
-                }
-            }
         }
-
+        
         prev_rows = std::move(next_rows);
         self_kinships = std::move(next_self_kinships);
     }
 
-    // Finalize - OPTIMIZED VERSION WITH PRE-ALLOCATION
+    SparseResult result;
     int n_final = prev_rows.size();
 
-    // Step 1: Calculate total size needed (single pass to avoid reallocations)
-    size_t total_nnz = 0;
-    for (int i = 0; i < n_final; ++i) {
-        total_nnz += prev_rows[i].cols.size();
+    if (symmetric_coo) {
+        // Mode 1: Symmetrical COO (data, rows, cols)
+        // Calculate exact total NNZ for symmetric matrix
+        size_t total_nnz = 0;
+        for (int i = 0; i < n_final; ++i) {
+            const auto& row = prev_rows[i];
+            for (int col : row.cols) {
+                total_nnz += (col == i) ? 1 : 2;
+            }
+        }
+
+        result.data.reserve(total_nnz);
+        result.rows.reserve(total_nnz);
+        result.indices.reserve(total_nnz); // acts as cols
+
+        for (int i = 0; i < n_final; ++i) {
+            const SparseRow& row = prev_rows[i];
+            for (size_t k = 0; k < row.cols.size(); ++k) {
+                int j = row.cols[k];
+                float val = row.vals[k];
+                
+                // Add (i, j)
+                result.rows.push_back(i);
+                result.indices.push_back(j);
+                result.data.push_back(val);
+                
+                // Add (j, i) if off-diagonal
+                if (i != j) {
+                    result.rows.push_back(j);
+                    result.indices.push_back(i);
+                    result.data.push_back(val);
+                }
+            }
+            // Free row memory immediately
+            SparseRow().cols.swap(prev_rows[i].cols);
+            SparseRow().vals.swap(prev_rows[i].vals);
+        }
+    } else {
+        // Mode 2: Lower-Triangular CSR (data, indices, indptr)
+        size_t total_nnz = 0;
+        for (int i = 0; i < n_final; ++i) {
+            total_nnz += prev_rows[i].cols.size();
+        }
+
+        result.data.reserve(total_nnz);
+        result.indices.reserve(total_nnz);
+        result.indptr.reserve(n_final + 1);
+        result.indptr.push_back(0);
+
+        for (int i = 0; i < n_final; ++i) {
+            const SparseRow& row = prev_rows[i];
+            result.indices.insert(result.indices.end(), row.cols.begin(), row.cols.end());
+            result.data.insert(result.data.end(), row.vals.begin(), row.vals.end());
+            result.indptr.push_back(result.data.size());
+            
+            // Free row memory
+            SparseRow().cols.swap(prev_rows[i].cols);
+            SparseRow().vals.swap(prev_rows[i].vals);
+        }
     }
 
-    // Step 2: Pre-allocate exact sizes needed - NO REALLOCATIONS
-    std::vector<float> final_data;
-    std::vector<int> final_indices;
-    std::vector<int64_t> final_indptr;
-
-    final_data.reserve(total_nnz);        // Pre-allocate exact space
-    final_indices.reserve(total_nnz);     // Pre-allocate exact space
-    final_indptr.reserve(n_final + 1);    // Already done, but explicit
-
-    final_indptr.push_back(0);
-
-    // Step 3: Single-pass assembly with NO reallocations
-    for (int i = 0; i < n_final; ++i) {
-        const SparseRow& row = prev_rows[i];
-        
-        // These inserts will NEVER trigger reallocation because we reserved exactly
-        final_indices.insert(final_indices.end(), row.cols.begin(), row.cols.end());
-        final_data.insert(final_data.end(), row.vals.begin(), row.vals.end());
-        
-        final_indptr.push_back(final_data.size());
-        prev_rows[i].clear();  // Free memory as we go
-    }
-    
-    return {final_data, final_indices, final_indptr};
+    return result;
 }
 
 // Returns the previous generation of a set of individuals.

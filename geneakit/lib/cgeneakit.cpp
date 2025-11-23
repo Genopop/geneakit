@@ -349,38 +349,59 @@ NB_MODULE(cgeneakit, m) {
     "Returns the kinship matrix of a pedigree.");
 
     m.def("compute_kinships_sparse", [] (Pedigree<> &pedigree,
-        std::vector<int> proband_ids, bool verbose) {
+        std::vector<int> proband_ids, bool verbose, bool symmetric_coo) {
             
-        auto [data_vec, indices_vec, indptr_vec] = 
-            compute_kinships_sparse(pedigree, proband_ids, verbose);
+        SparseResult result = compute_kinships_sparse(
+            pedigree, proband_ids, verbose, symmetric_coo
+        );
         
-        size_t nnz = data_vec.size();
-        size_t n_rows = indptr_vec.size() - 1;
+        size_t nnz = result.data.size();
 
-        // ZERO-COPY: Move vectors to heap and expose buffers to NumPy
-        auto *data_vec_ptr = new std::vector<float>(std::move(data_vec));
-        nb::capsule data_owner(data_vec_ptr, 
-            [](void *p) noexcept { delete static_cast<std::vector<float>*>(p); });
+        // Data Vector (Common)
+        auto *data_ptr = new std::vector<float>(std::move(result.data));
+        nb::capsule data_owner(data_ptr, [](void *p) noexcept { 
+            delete static_cast<std::vector<float>*>(p); 
+        });
         auto np_data = nb::ndarray<nb::numpy, float, nb::ndim<1>>(
-            data_vec_ptr->data(), {nnz}, data_owner);
+            data_ptr->data(), {nnz}, data_owner);
 
-        auto *indices_vec_ptr = new std::vector<int>(std::move(indices_vec));
-        nb::capsule indices_owner(indices_vec_ptr, 
-            [](void *p) noexcept { delete static_cast<std::vector<int>*>(p); });
-        auto np_indices = nb::ndarray<nb::numpy, int, nb::ndim<1>>(
-            indices_vec_ptr->data(), {nnz}, indices_owner);
+        // Cols/Indices Vector (Common)
+        auto *cols_ptr = new std::vector<int>(std::move(result.indices));
+        nb::capsule cols_owner(cols_ptr, [](void *p) noexcept { 
+            delete static_cast<std::vector<int>*>(p); 
+        });
+        auto np_cols = nb::ndarray<nb::numpy, int, nb::ndim<1>>(
+            cols_ptr->data(), {nnz}, cols_owner);
 
-        auto *indptr_vec_ptr = new std::vector<int64_t>(std::move(indptr_vec));
-        nb::capsule indptr_owner(indptr_vec_ptr, 
-            [](void *p) noexcept { delete static_cast<std::vector<int64_t>*>(p); });
-        auto np_indptr = nb::ndarray<nb::numpy, int64_t, nb::ndim<1>>(
-            indptr_vec_ptr->data(), {n_rows + 1}, indptr_owner);
+        if (symmetric_coo) {
+            // Return (data, rows, cols) for COO
+            auto *rows_ptr = new std::vector<int>(std::move(result.rows));
+            nb::capsule rows_owner(rows_ptr, [](void *p) noexcept { 
+                delete static_cast<std::vector<int>*>(p); 
+            });
+            auto np_rows = nb::ndarray<nb::numpy, int, nb::ndim<1>>(
+                rows_ptr->data(), {nnz}, rows_owner);
+            
+            return nb::make_tuple(np_data, np_rows, np_cols);
 
-        return nb::make_tuple(np_data, np_indices, np_indptr);
+        } else {
+            // Return (data, indices, indptr) for CSR
+            size_t n_rows = result.indptr.size() - 1;
+            auto *indptr_ptr = new std::vector<int64_t>(std::move(result.indptr));
+            nb::capsule indptr_owner(indptr_ptr, [](void *p) noexcept { 
+                delete static_cast<std::vector<int64_t>*>(p); 
+            });
+            auto np_indptr = nb::ndarray<nb::numpy, int64_t, nb::ndim<1>>(
+                indptr_ptr->data(), {n_rows + 1}, indptr_owner);
+            
+            return nb::make_tuple(np_data, np_cols, np_indptr);
+        }
     },
-    "Returns (data, indices, indptr) for sparse kinship matrix (zero-copy).",
-    nb::arg("pedigree"), nb::arg("proband_ids") = std::vector<int>(), 
-    nb::arg("verbose") = false);
+    "Returns sparse kinship matrix vectors (zero-copy).",
+    nb::arg("pedigree"), 
+    nb::arg("proband_ids") = std::vector<int>(), 
+    nb::arg("verbose") = false,
+    nb::arg("symmetric_coo") = false);
 
     m.def("compute_inbreedings", &compute_inbreedings,
         "Returns the inbreeding coefficients of probands.");
