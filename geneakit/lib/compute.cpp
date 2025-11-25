@@ -25,9 +25,17 @@ SOFTWARE.
 #include "../include/compute.hpp"
 
 // -----------------------------------------------------------------------------
-// Sparse Kinship Structures
+// DATA STRUCTURE: SparseRow
 // -----------------------------------------------------------------------------
-
+// The logic relies on a custom Compressed Sparse Row (CSR) format.
+// A standard pedigree kinship matrix is symmetric and dense near the diagonal 
+// but becomes very sparse for distant relatives.
+//
+// Instead of storing a vector of size N with mostly zeros: [0, 0, 0.25, 0, 0.5]
+// We store:
+//   cols: [2, 4]      (Indices of non-zero kinships)
+//   vals: [0.25, 0.5] (The kinship coefficients)
+// -----------------------------------------------------------------------------
 struct SparseRow {
     std::vector<int> cols;
     std::vector<float> vals;
@@ -44,9 +52,20 @@ struct SparseRow {
 };
 
 // -----------------------------------------------------------------------------
-// Sparse Kinship Helpers
+// HELPER: Build Maps (The "Wiring" between Generations)
 // -----------------------------------------------------------------------------
-
+// Mathematical Concept:
+// To compute Kinship Matrix K(t+1) from K(t), we need a transition matrix P.
+// K(t+1) = P * K(t) * P^T
+//
+// Instead of building P explicitly, we build adjacency maps to simulate the 
+// multiplication.
+//
+// 1. up_map (Look Back):   For an individual in generation T+1, who are their 
+//                          parents/ancestors in generation T?
+// 2. down_map (Look Fwd):  For an individual in generation T, which individuals 
+//                          in T+1 inherit their genes?
+// -----------------------------------------------------------------------------
 std::tuple<std::vector<std::array<int, 2>>, std::vector<std::vector<int>>, std::vector<int>>
 build_maps_sparse(
     int n_next,
@@ -54,23 +73,34 @@ build_maps_sparse(
     const phmap::flat_hash_map<int, int>& prev_map_lookup,
     Pedigree<>& pedigree
 ) {
+    // up_map[i] stores indices of parents in the *Previous Cut*.
+    // {-1, -1} indicates unknown parents or parents not in the previous active cut.
     std::vector<std::array<int, 2>> up_map(n_next, {-1, -1});
+    
+    // down_map[j] stores the list of indices in the *Next Cut* that depend on 
+    // individual 'j' from the Previous Cut.
     std::vector<std::vector<int>> down_map(prev_map_lookup.size());
+    
     std::vector<int> usage_counts(prev_map_lookup.size(), 0);
 
     for (int i = 0; i < n_next; ++i) {
         int ind_id = next_cut_ids[i];
         
+        // CHECK: Is this individual a "Survivor"?
+        // In the Vertex Cut method, some individuals persist from Cut T to Cut T+1.
+        // We treat this as "Cloning": Ind_T -> Ind_T+1 with weight 1.0.
         auto it = prev_map_lookup.find(ind_id);
         if (it != prev_map_lookup.end()) {
             int prev_idx = it->second;
             up_map[i][0] = prev_idx;
-            up_map[i][1] = -2; // Flag for Copy
+            up_map[i][1] = -2; // SPECIAL FLAG: -2 indicates "Identity Copy"
             down_map[prev_idx].push_back(i);
             usage_counts[prev_idx]++;
         } else {
+            // Otherwise, this is a new birth. Look for parents in the previous cut.
             Individual<>* ind = pedigree.individuals.at(ind_id);
             
+            // Map Father
             if (ind->father) {
                 auto f_it = prev_map_lookup.find(ind->father->id);
                 if (f_it != prev_map_lookup.end()) {
@@ -81,6 +111,7 @@ build_maps_sparse(
                 }
             }
 
+            // Map Mother
             if (ind->mother) {
                 auto m_it = prev_map_lookup.find(ind->mother->id);
                 if (m_it != prev_map_lookup.end()) {
@@ -96,9 +127,8 @@ build_maps_sparse(
 }
 
 // -----------------------------------------------------------------------------
-// Main Sparse Kinship Function
+// MAIN FUNCTION: Compute Kinships Sparse
 // -----------------------------------------------------------------------------
-
 SparseResult compute_kinships_sparse(
     Pedigree<> &pedigree, 
     std::vector<int> proband_ids, 
@@ -109,6 +139,9 @@ SparseResult compute_kinships_sparse(
         proband_ids = get_proband_ids(pedigree);
     }
 
+    // STEP 1: Topological Sorting (Vertex Cuts)
+    // We break the pedigree into sequential "cuts" (generations).
+    // This allows us to only hold two slices of the matrix in memory at once.
     if (verbose) std::cout << "Computing vertex cuts..." << std::endl;
     std::vector<std::vector<int>> cuts = cut_vertices(pedigree, proband_ids);
     
@@ -116,6 +149,8 @@ SparseResult compute_kinships_sparse(
         return {};
     }
 
+    // STEP 2: Initialize Founders (The 1st Cut)
+    // Kinship with self is 0.5 (assuming no inbreeding for founders).
     int n_founders = cuts[0].size();
     std::vector<SparseRow> prev_rows(n_founders);
     std::vector<float> self_kinships(n_founders, 0.5);
@@ -125,8 +160,11 @@ SparseResult compute_kinships_sparse(
         prev_rows[i].vals.push_back(0.5f);
     }
 
+    // BATCH_SIZE controls OpenMP granularity and cache locality.
     const int BATCH_SIZE = 512;
 
+    // STEP 3: Iterate through generations (The Wavefront)
+    // We compute Cut T+1 using only Cut T.
     for (size_t t = 0; t < cuts.size() - 1; ++t) {
         const auto& current_cut = cuts[t];
         const auto& next_cut = cuts[t + 1];
@@ -138,42 +176,59 @@ SparseResult compute_kinships_sparse(
                    t + 1, cuts.size() - 1, n_prev, n_next);
         }
 
+        // Build lookup table for Previous Cut indices
         phmap::flat_hash_map<int, int> prev_map_lookup;
         prev_map_lookup.reserve(n_prev);
         for (int i = 0; i < n_prev; ++i) {
             prev_map_lookup[current_cut[i]] = i;
         }
 
+        // Build the dependency maps (Parents -> Children wiring)
         auto maps = build_maps_sparse(n_next, next_cut, prev_map_lookup, pedigree);
         const auto& up_map = std::get<0>(maps);
         const auto& down_map = std::get<1>(maps);
         
-        // Build Upper Triangle Adjacency
+        // PRE-PROCESSING: Upper Triangle Transposition
+        // We only store the Lower Triangle of the symmetric matrix to save RAM.
+        // However, to compute Row i = 0.5*Row_Father + 0.5*Row_Mother, 
+        // we might need a value K(Father, X) where X > Father. 
+        // In Lower Triangle storage, this is stored as K(X, Father).
+        // 'ut_adj' creates a quick lookup for these "missing" upper values.
         std::vector<std::vector<std::pair<int, float>>> ut_adj(n_prev);
         for(int r = 0; r < n_prev; ++r) {
             const auto& row = prev_rows[r];
             for(size_t k = 0; k < row.cols.size(); ++k) {
                 int c = row.cols[k];
                 if (c != r) {
+                    // If K(r, c) exists, record it for 'c' pointing back to 'r'
                     ut_adj[c].push_back({r, row.vals[k]});
                 }
             }
         }
 
+        // Prepare storage for the Next Cut matrix
         std::vector<SparseRow> next_rows(n_next);
         std::vector<float> next_self_kinships(n_next);
 
         int num_batches = (n_next + BATCH_SIZE - 1) / BATCH_SIZE;
 
+        // BATCHED PARALLEL COMPUTATION
         for (int b = 0; b < num_batches; ++b) {
             int start = b * BATCH_SIZE;
             int end = std::min(start + BATCH_SIZE, n_next);
 
             #pragma omp parallel 
             {
+                // DENSE ACCUMULATOR STRATEGY
+                // Sparse vector addition is inefficient if done directly.
+                // Instead, we scatter values into a dense array, sum them, 
+                // and gather non-zeros back.
                 std::vector<float> dense_acc(n_next, 0.0f);
                 std::vector<int> col_indices; 
                 col_indices.reserve(512);
+                
+                // 'marker' acts as a boolean flag to track which indices are dirty
+                // 'tag' increments per iteration to avoid zeroing the whole array
                 std::vector<int> marker(n_next, 0);
                 int tag = 0;
 
@@ -182,33 +237,50 @@ SparseResult compute_kinships_sparse(
                     tag++; 
                     col_indices.clear();
                     
+                    // Identify Parents of individual 'i'
                     int p1_idx = up_map[i][0];
                     int p2_idx = up_map[i][1];
-                    bool is_copy = (p2_idx == -2);
+                    bool is_copy = (p2_idx == -2); // Check "Survivor" flag
 
                     int parents[2];
                     int p_count = 0;
                     if (p1_idx >= 0) parents[p_count++] = p1_idx;
                     if (!is_copy && p2_idx >= 0) parents[p_count++] = p2_idx;
 
+                    // --- COMPUTE ROW i ---
+                    // Row_i = 0.5 * Row_Father + 0.5 * Row_Mother
+                    // We iterate over the parents.
                     for (int k = 0; k < p_count; ++k) {
                         int p_row = parents[k];
+                        // If 'i' is a copy, weight is 1.0. If 'i' is a child, weight is 0.5.
                         float scaler = (is_copy) ? 1.0f : 0.5f;
                         
-                        // Process Lower Triangle
+                        // -----------------------------------------------------
+                        // SUB-STEP A: Process Lower Triangle of Parent's Row
+                        // -----------------------------------------------------
                         const SparseRow& p_data = prev_rows[p_row];
                         for (size_t idx = 0; idx < p_data.cols.size(); ++idx) {
                             int ancestor = p_data.cols[idx];
-                            float kin_val = p_data.vals[idx] * scaler;
+                            float kin_val = p_data.vals[idx] * scaler; 
+                            // kin_val represents partial path: 0.5 * phi(Parent, Ancestor)
                             
+                            // PROJECTION: We know 'i' is related to 'Ancestor'.
+                            // Now we must find who in the *current* generation (Next Cut)
+                            // carries 'Ancestor's' genes. 
                             const std::vector<int>& children_of_ancestor = down_map[ancestor];
+                            
                             for (int child_idx : children_of_ancestor) {
+                                // Optimization: Only compute Lower Triangle (Col <= Row)
                                 if (child_idx > i) continue; 
 
+                                // Determine how 'child_idx' relates to 'ancestor'
                                 int c_p1 = up_map[child_idx][0];
                                 int c_p2 = up_map[child_idx][1];
                                 float child_scaler = 0.0f;
                                 
+                                // Logic:
+                                // If 'child_idx' is a COPY of 'ancestor', they get 100% of the value.
+                                // If 'child_idx' is a CHILD of 'ancestor', they get 50%.
                                 if (c_p2 == -2) {
                                     if (c_p1 == ancestor) child_scaler = 1.0f;
                                 } else {
@@ -216,8 +288,10 @@ SparseResult compute_kinships_sparse(
                                     if (c_p2 == ancestor) child_scaler += 0.5f;
                                 }
                                 
+                                // Total Contribution to phi(i, child_idx)
                                 float contribution = kin_val * child_scaler;
                                 
+                                // Scatter into dense accumulator
                                 if (marker[child_idx] != tag) {
                                     marker[child_idx] = tag;
                                     dense_acc[child_idx] = contribution;
@@ -228,7 +302,11 @@ SparseResult compute_kinships_sparse(
                             }
                         }
 
-                        // Process Upper Triangle
+                        // -----------------------------------------------------
+                        // SUB-STEP B: Process Upper Triangle of Parent's Row
+                        // -----------------------------------------------------
+                        // Same logic, but accessing the implicit upper triangle
+                        // via the 'ut_adj' lookup built earlier.
                         const auto& ut_data = ut_adj[p_row];
                         for (const auto& pair : ut_data) {
                             int ancestor = pair.first;
@@ -262,12 +340,22 @@ SparseResult compute_kinships_sparse(
                         }
                     }
 
-                    // Diagonal Logic
+                    // ---------------------------------------------------------
+                    // SUB-STEP C: Compute Diagonal (Self-Kinship)
+                    // ---------------------------------------------------------
                     float diag_val = 0.0f;
                     if (is_copy) {
+                        // If individual is just copied, self-kinship is preserved.
+                        // (dense_acc[i] holds the calculated value from the loop if self was in down_map)
                         if (marker[i] == tag) diag_val = dense_acc[i];
-                        else diag_val = 0.5f; 
+                        else diag_val = 0.5f; // Fallback for founders/isolates
                     } else {
+                        // For a new birth: phi(i,i) = 0.5 * (1 + phi(Father, Mother))
+                        // The loop above accumulates phi(Father, Mother) into dense_acc[i] indirectly
+                        // via path summation.
+                        // However, we subtract the self-terms of parents (0.25*phi(F,F) + 0.25*phi(M,M))
+                        // to correct the raw accumulation logic, resulting in 0.5 + 0.5*Inbreeding.
+                        
                         float term_pp = (p1_idx >= 0) ? 0.25f * self_kinships[p1_idx] : 0.0f;
                         float term_mm = (p2_idx >= 0) ? 0.25f * self_kinships[p2_idx] : 0.0f;
                         
@@ -275,6 +363,7 @@ SparseResult compute_kinships_sparse(
                         diag_val = 0.5f + raw_val - (term_pp + term_mm);
                     }
                     
+                    // Ensure diagonal is stored
                     if (marker[i] != tag) {
                         marker[i] = tag;
                         dense_acc[i] = diag_val;
@@ -284,6 +373,10 @@ SparseResult compute_kinships_sparse(
                     }
                     next_self_kinships[i] = diag_val;
 
+                    // ---------------------------------------------------------
+                    // SUB-STEP D: Gather (Compress to Sparse)
+                    // ---------------------------------------------------------
+                    // Sort indices to ensure CSR format compliance
                     std::sort(col_indices.begin(), col_indices.end());
                     auto last = std::unique(col_indices.begin(), col_indices.end());
                     col_indices.erase(last, col_indices.end());
@@ -293,6 +386,7 @@ SparseResult compute_kinships_sparse(
                     
                     for (int col : col_indices) {
                         float val = dense_acc[col];
+                        // Pruning: Drop values close to zero to maintain sparsity
                         if (std::abs(val) > 1e-12f) {
                             next_rows[i].cols.push_back(col);
                             next_rows[i].vals.push_back(val);
@@ -302,27 +396,32 @@ SparseResult compute_kinships_sparse(
             }
         }
         
+        // Advance generation: Next becomes Prev
         prev_rows = std::move(next_rows);
         self_kinships = std::move(next_self_kinships);
     }
 
+    // STEP 4: Final Output Formatting
+    // Convert the internal SparseRow structure to the requested output format.
     SparseResult result;
     int n_final = prev_rows.size();
 
     if (symmetric_coo) {
-        // Mode 1: Symmetrical COO (data, rows, cols)
-        // Calculate exact total NNZ for symmetric matrix
+        // Output Format 1: Symmetric Coordinate List (COO)
+        // Useful for R/Python packages that expect (row, col, value) tuples.
+        // We explicitly duplicate (i,j) and (j,i).
+        
         size_t total_nnz = 0;
         for (int i = 0; i < n_final; ++i) {
             const auto& row = prev_rows[i];
             for (int col : row.cols) {
-                total_nnz += (col == i) ? 1 : 2;
+                total_nnz += (col == i) ? 1 : 2; // Count off-diagonals twice
             }
         }
 
         result.data.reserve(total_nnz);
         result.rows.reserve(total_nnz);
-        result.indices.reserve(total_nnz); // acts as cols
+        result.indices.reserve(total_nnz);
 
         for (int i = 0; i < n_final; ++i) {
             const SparseRow& row = prev_rows[i];
@@ -342,12 +441,15 @@ SparseResult compute_kinships_sparse(
                     result.data.push_back(val);
                 }
             }
-            // Free row memory immediately
+            // Memory optimization: clear processed rows immediately
             SparseRow().cols.swap(prev_rows[i].cols);
             SparseRow().vals.swap(prev_rows[i].vals);
         }
     } else {
-        // Mode 2: Lower-Triangular CSR (data, indices, indptr)
+        // Output Format 2: Lower-Triangular CSR
+        // Standard Compressed Sparse Row format (indptr array).
+        // Only stores lower triangle (i >= j).
+        
         size_t total_nnz = 0;
         for (int i = 0; i < n_final; ++i) {
             total_nnz += prev_rows[i].cols.size();
@@ -364,7 +466,6 @@ SparseResult compute_kinships_sparse(
             result.data.insert(result.data.end(), row.vals.begin(), row.vals.end());
             result.indptr.push_back(result.data.size());
             
-            // Free row memory
             SparseRow().cols.swap(prev_rows[i].cols);
             SparseRow().vals.swap(prev_rows[i].vals);
         }
