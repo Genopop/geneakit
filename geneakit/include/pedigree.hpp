@@ -25,18 +25,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ------------------------------------------------------------------------------*/
 
-#include <parallel_hashmap/phmap.h>
 #include "individual.hpp"
+#include <unordered_map>
 
 // A structure to represent a pedigree.
 template <typename T = Empty>
 struct Pedigree {
     std::vector<int> ids;
-    phmap::flat_hash_map<int, Individual<T> *> individuals;
+    std::unordered_map<int, Individual<T> *> individuals;
     // Constructors
     Pedigree() {};
     Pedigree(std::vector<int> ids,
-        phmap::flat_hash_map<int, Individual<T> *> individuals) :
+        std::unordered_map<int, Individual<T> *> individuals) :
         ids(ids), individuals(individuals) {};
     // Copy constructor
     Pedigree(const Pedigree<T>& other) {

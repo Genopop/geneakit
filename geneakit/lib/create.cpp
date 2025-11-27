@@ -28,7 +28,7 @@ SOFTWARE.
 Pedigree<ParentIDs> create_unsorted_pedigree(std::string pedigree_file) {
     // Initialize the pedigree
     Pedigree<ParentIDs> unsorted_pedigree = Pedigree<ParentIDs>();
-    phmap::flat_hash_map<int, Individual<ParentIDs> *> individuals;
+    std::unordered_map<int, Individual<ParentIDs> *> individuals;
     std::vector<int> ids;
     int rank = 0;
     // Read the pedigree file
@@ -77,7 +77,7 @@ Pedigree<ParentIDs> create_unsorted_pedigree(std::vector<int> ids,
     std::vector<int> sexes) {
     // Initialize the pedigree
     Pedigree<ParentIDs> unsorted_pedigree = Pedigree<ParentIDs>();
-    phmap::flat_hash_map<int, Individual<ParentIDs> *> individuals;
+    std::unordered_map<int, Individual<ParentIDs> *> individuals;
     // Fill the pedigree
     for (int i = 0; i < (int) ids.size(); i++) {
         // Create the individual
@@ -138,7 +138,7 @@ Pedigree<> convert_pedigree(Pedigree<ParentIDs> &unsorted_pedigree,
     bool sorted) {
     // Initialize the pedigree
     Pedigree pedigree;
-    phmap::flat_hash_map<int, Individual<> *> individuals;
+    std::unordered_map<int, Individual<> *> individuals;
     // Check if the pedigree is already sorted
     if (sorted) {
         // Fill the pedigree

@@ -4,7 +4,7 @@ NB_MODULE(cgeneakit, m) {
     m.doc() = "A C++/Python module for genealogical analysis.";
 
     nb::class_<Pedigree<>>(m, "Pedigree")
-        .def(nb::init<std::vector<int>, phmap::flat_hash_map<int, Individual<> *>>())
+        .def(nb::init<std::vector<int>, std::unordered_map<int, Individual<> *>>())
         .def("__str__", [] (Pedigree<> &pedigree) {
             return "A pedigree with:\n - " +
                 std::to_string(get_number_of_individuals(pedigree)) +

@@ -29,6 +29,7 @@ SOFTWARE.
 #include <queue>
 #include <set>
 #include <algorithm>
+#include <unordered_set>
 #include "pedigree.hpp"
 #include "matrix.hpp"
 

@@ -99,7 +99,7 @@ Pedigree<> extract_pedigree(Pedigree<> &pedigree,
     }
     // Add the relevant individuals to the new pedigree
     std::vector<int> ids;
-    phmap::flat_hash_map<int, Individual<> *> individuals;
+    std::unordered_map<int, Individual<> *> individuals;
     int rank = 0;
     bool (*condition)(Individual<Status> *);
     if (!proband_ids.empty() && !ancestor_ids.empty()) {
@@ -157,7 +157,7 @@ Pedigree<> extract_lineages(Pedigree<> &pedigree,
     }
     // Add the relevant individuals to the new pedigree
     std::vector<int> ids;
-    phmap::flat_hash_map<int, Individual<> *> individuals;
+    std::unordered_map<int, Individual<> *> individuals;
     int rank = 0;
     for (const int id : extract_pedigree.ids) {
         Individual<Status> *individual = extract_pedigree.individuals.at(id);
