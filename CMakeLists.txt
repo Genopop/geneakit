@@ -14,9 +14,6 @@ if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
-# Link to external/include/parallel_hashmap/phmap.h
-include_directories(${CMAKE_SOURCE_DIR}/external)
-
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ version selection")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
