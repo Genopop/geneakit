@@ -26,17 +26,19 @@ SOFTWARE.
 ------------------------------------------------------------------------------*/
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <functional>
 #include <limits>
 #include <math.h>
 #include <omp.h>
 #include <queue>
 #include <set>
 #include <tuple>
-#include <vector>
 #include <unordered_set>
+#include <vector>
 #include "identify.hpp"
 #include "extract.hpp"
 #include "matrix.hpp"
