@@ -52,6 +52,117 @@ struct SparseRow {
     }
 };
 
+// Returns the previous generation of a set of individuals.
+std::unordered_set<int> get_previous_generation(Pedigree<> &pedigree,
+    std::unordered_set<int> &ids) {
+    std::unordered_set<int> previous_generation;
+    for (const int id : ids) {
+        Individual<> *individual = pedigree.individuals.at(id);
+        if (individual->father) {
+            previous_generation.insert(individual->father->id);
+        }
+        if (individual->mother) {
+            previous_generation.insert(individual->mother->id);
+        }
+    }
+    return previous_generation;
+}
+
+// Go from the bottom to the top of the pedigree
+std::vector<std::unordered_set<int>> get_generations(Pedigree<> &pedigree,
+    std::vector<int> &proband_ids) {
+    std::vector<std::unordered_set<int>> generations;
+    std::unordered_set<int> generation(proband_ids.begin(), proband_ids.end());
+    while (!generation.empty()) {
+        generations.push_back(generation);
+        generation = get_previous_generation(pedigree, generation);
+    }
+    return generations;
+}
+
+// Drag the individuals up
+std::vector<std::unordered_set<int>> copy_bottom_up(
+    std::vector<std::unordered_set<int>> &generations) {
+    std::vector<std::unordered_set<int>> bottom_up;
+    std::unordered_set<int> ids(generations[0].begin(), generations[0].end());
+    bottom_up.push_back(ids);
+    for (int i = 0; i < (int) generations.size() - 1; i++) {
+        std::unordered_set<int> next_generation;
+        std::set<int> set1(bottom_up[i].begin(), bottom_up[i].end());
+        std::set<int> set2(generations[i + 1].begin(), generations[i + 1].end());
+        set_union(
+            set1.begin(), set1.end(),
+            set2.begin(), set2.end(),
+            std::inserter(next_generation, next_generation.end())
+        );
+        bottom_up.push_back(next_generation);
+    }
+    reverse(bottom_up.begin(), bottom_up.end());
+    return bottom_up;
+}
+
+// Drag the individuals down
+std::vector<std::unordered_set<int>> copy_top_down(
+    std::vector<std::unordered_set<int>> &generations) {
+    reverse(generations.begin(), generations.end());
+    std::vector<std::unordered_set<int>> top_down;
+    std::unordered_set<int> ids(generations[0].begin(), generations[0].end());
+    top_down.push_back(ids);
+    for (int i = 0; i < (int) generations.size() - 1; i++) {
+        std::unordered_set<int> next_generation;
+        std::set<int> set1(top_down[i].begin(), top_down[i].end());
+        std::set<int> set2(generations[i + 1].begin(), generations[i + 1].end());
+        set_union(
+            set1.begin(), set1.end(),
+            set2.begin(), set2.end(),
+            std::inserter(next_generation, next_generation.end())
+        );
+        top_down.push_back(next_generation);
+    }
+    return top_down;
+}
+
+// Find the intersection of the two sets
+std::vector<std::vector<int>> intersect_both_directions(
+    std::vector<std::unordered_set<int>> &bottom_up,
+    std::vector<std::unordered_set<int>> &top_down) {
+    std::vector<std::vector<int>> vertex_cuts;
+    for (int i = 0; i < (int) bottom_up.size(); i++) {
+        std::set<int> set1(bottom_up[i].begin(), bottom_up[i].end());
+        std::set<int> set2(top_down[i].begin(), top_down[i].end());
+        std::vector<int> intersection_result;
+        set_intersection(
+            set1.begin(), set1.end(),
+            set2.begin(), set2.end(),
+            std::back_inserter(intersection_result)
+        );
+        std::vector<int> vertex_cut(intersection_result.begin(), intersection_result.end());
+        vertex_cuts.push_back(vertex_cut);
+    }
+    return vertex_cuts;
+}
+
+// Separate the individuals into generations where individuals who appear
+// in two non-contiguous generations are dragged in the generations in-between.
+// Based on the recursive-cut algorithm from Kirkpatrick et al.
+std::vector<std::vector<int>> cut_vertices(
+    Pedigree<> &pedigree, std::vector<int> &proband_ids) {
+    std::vector<std::unordered_set<int>> generations;
+    std::vector<std::vector<int>> vertex_cuts;
+    generations = get_generations(pedigree, proband_ids);
+    std::vector<std::unordered_set<int>> bottom_up, top_down;
+    bottom_up = copy_bottom_up(generations);
+    top_down = copy_top_down(generations);
+    vertex_cuts = intersect_both_directions(bottom_up, top_down);
+    // Set the last vertex cut to the probands
+    std::vector<int> probands;
+    for (const int id : proband_ids) {
+        probands.push_back(id);
+    }
+    vertex_cuts[vertex_cuts.size() - 1] = probands;
+    return vertex_cuts;
+}
+
 // -----------------------------------------------------------------------------
 // HELPER: Build Maps (The "Wiring" between Generations)
 // -----------------------------------------------------------------------------
@@ -467,117 +578,6 @@ SparseResult compute_kinships_sparse(
     }
 
     return result;
-}
-
-// Returns the previous generation of a set of individuals.
-std::unordered_set<int> get_previous_generation(Pedigree<> &pedigree,
-    std::unordered_set<int> &ids) {
-    std::unordered_set<int> previous_generation;
-    for (const int id : ids) {
-        Individual<> *individual = pedigree.individuals.at(id);
-        if (individual->father) {
-            previous_generation.insert(individual->father->id);
-        }
-        if (individual->mother) {
-            previous_generation.insert(individual->mother->id);
-        }
-    }
-    return previous_generation;
-}
-
-// Go from the bottom to the top of the pedigree
-std::vector<std::unordered_set<int>> get_generations(Pedigree<> &pedigree,
-    std::vector<int> &proband_ids) {
-    std::vector<std::unordered_set<int>> generations;
-    std::unordered_set<int> generation(proband_ids.begin(), proband_ids.end());
-    while (!generation.empty()) {
-        generations.push_back(generation);
-        generation = get_previous_generation(pedigree, generation);
-    }
-    return generations;
-}
-
-// Drag the individuals up
-std::vector<std::unordered_set<int>> copy_bottom_up(
-    std::vector<std::unordered_set<int>> &generations) {
-    std::vector<std::unordered_set<int>> bottom_up;
-    std::unordered_set<int> ids(generations[0].begin(), generations[0].end());
-    bottom_up.push_back(ids);
-    for (int i = 0; i < (int) generations.size() - 1; i++) {
-        std::unordered_set<int> next_generation;
-        std::set<int> set1(bottom_up[i].begin(), bottom_up[i].end());
-        std::set<int> set2(generations[i + 1].begin(), generations[i + 1].end());
-        set_union(
-            set1.begin(), set1.end(),
-            set2.begin(), set2.end(),
-            std::inserter(next_generation, next_generation.end())
-        );
-        bottom_up.push_back(next_generation);
-    }
-    reverse(bottom_up.begin(), bottom_up.end());
-    return bottom_up;
-}
-
-// Drag the individuals down
-std::vector<std::unordered_set<int>> copy_top_down(
-    std::vector<std::unordered_set<int>> &generations) {
-    reverse(generations.begin(), generations.end());
-    std::vector<std::unordered_set<int>> top_down;
-    std::unordered_set<int> ids(generations[0].begin(), generations[0].end());
-    top_down.push_back(ids);
-    for (int i = 0; i < (int) generations.size() - 1; i++) {
-        std::unordered_set<int> next_generation;
-        std::set<int> set1(top_down[i].begin(), top_down[i].end());
-        std::set<int> set2(generations[i + 1].begin(), generations[i + 1].end());
-        set_union(
-            set1.begin(), set1.end(),
-            set2.begin(), set2.end(),
-            std::inserter(next_generation, next_generation.end())
-        );
-        top_down.push_back(next_generation);
-    }
-    return top_down;
-}
-
-// Find the intersection of the two sets
-std::vector<std::vector<int>> intersect_both_directions(
-    std::vector<std::unordered_set<int>> &bottom_up,
-    std::vector<std::unordered_set<int>> &top_down) {
-    std::vector<std::vector<int>> vertex_cuts;
-    for (int i = 0; i < (int) bottom_up.size(); i++) {
-        std::set<int> set1(bottom_up[i].begin(), bottom_up[i].end());
-        std::set<int> set2(top_down[i].begin(), top_down[i].end());
-        std::vector<int> intersection_result;
-        set_intersection(
-            set1.begin(), set1.end(),
-            set2.begin(), set2.end(),
-            std::back_inserter(intersection_result)
-        );
-        std::vector<int> vertex_cut(intersection_result.begin(), intersection_result.end());
-        vertex_cuts.push_back(vertex_cut);
-    }
-    return vertex_cuts;
-}
-
-// Separate the individuals into generations where individuals who appear
-// in two non-contiguous generations are dragged in the generations in-between.
-// Based on the recursive-cut algorithm from Kirkpatrick et al.
-std::vector<std::vector<int>> cut_vertices(
-    Pedigree<> &pedigree, std::vector<int> &proband_ids) {
-    std::vector<std::unordered_set<int>> generations;
-    std::vector<std::vector<int>> vertex_cuts;
-    generations = get_generations(pedigree, proband_ids);
-    std::vector<std::unordered_set<int>> bottom_up, top_down;
-    bottom_up = copy_bottom_up(generations);
-    top_down = copy_top_down(generations);
-    vertex_cuts = intersect_both_directions(bottom_up, top_down);
-    // Set the last vertex cut to the probands
-    std::vector<int> probands;
-    for (const int id : proband_ids) {
-        probands.push_back(id);
-    }
-    vertex_cuts[vertex_cuts.size() - 1] = probands;
-    return vertex_cuts;
 }
 
 // Returns the kinship coefficient between two individuals.
