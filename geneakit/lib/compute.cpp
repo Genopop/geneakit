@@ -260,7 +260,6 @@ SparseResult compute_kinships_sparse(
         #pragma omp parallel for
         for (int i = 0; i < n_prev; ++i) {
             current_cut[i]->data.prev_idx = i;  
-            current_cut[i]->data.next_idx = -1; // Reset destination index
         }
 
         // Pass 2: Set flags for the Next Cut.
@@ -338,18 +337,11 @@ SparseResult compute_kinships_sparse(
                         // CASE B: NEWBORN.
                         // The individual is new. We aggregate kinships from parents.
                         // Scaler = 0.5 for each parent.
-                        // We must ensure parents are actually present in the Previous Cut (prev_idx >= 0).
                         if (individual->father) {
-                            int f_idx = individual->father->data.prev_idx;
-                            if (f_idx >= 0 && f_idx < n_prev && current_cut[f_idx] == individual->father) {
-                                sources[s_count++] = {f_idx, 0.5f};
-                            }
+                            sources[s_count++] = {individual->father->data.prev_idx, 0.5f};
                         }
                         if (individual->mother) {
-                            int m_idx = individual->mother->data.prev_idx;
-                            if (m_idx >= 0 && m_idx < n_prev && current_cut[m_idx] == individual->mother) {
-                                sources[s_count++] = {m_idx, 0.5f};
-                            }
+                            sources[s_count++] = {individual->mother->data.prev_idx, 0.5f};
                         }
                     }
 
@@ -394,31 +386,24 @@ SparseResult compute_kinships_sparse(
                             for (const auto& child : ancestor->children) {
                                 int child_idx = child->data.next_idx;
                                 
-                                // Validation: Child must be in Next Cut and not be the Ancestor (copy) itself.
-                                if (child_idx == -1 || child_idx >= n_next || next_cut[child_idx] != child) continue;
+                                // Validation: Child must be in Next Cut.
+                                if (child_idx == -1) continue;
                                 
                                 // Optimization: If the child was simply copied from the previous cut,
                                 // we already handled it in "Project to Self" step above via the Ancestor.
-                                int child_prev = child->data.prev_idx;
-                                if (child_prev != -1 && child_prev < n_prev && current_cut[child_prev] == child) continue;
+                                if (child->data.prev_idx != -1) continue;
 
                                 // Maintain Lower Triangle
                                 if (child_idx > i) continue; 
 
                                 // Calculate Genetic Contribution
-                                float child_scaler = 0.0f;
-                                if (child->father && child->father->data.prev_idx == ancestor_idx) child_scaler += 0.5f;
-                                if (child->mother && child->mother->data.prev_idx == ancestor_idx) child_scaler += 0.5f;
-
-                                if (child_scaler > 0.0f) {
-                                    float contribution = kin_val * child_scaler;
-                                    if (marker[child_idx] != tag) {
-                                        marker[child_idx] = tag;
-                                        dense_acc[child_idx] = contribution;
-                                        col_indices.push_back(child_idx);
-                                    } else {
-                                        dense_acc[child_idx] += contribution;
-                                    }
+                                float contribution = kin_val * 0.5f;
+                                if (marker[child_idx] != tag) {
+                                    marker[child_idx] = tag;
+                                    dense_acc[child_idx] = contribution;
+                                    col_indices.push_back(child_idx);
+                                } else {
+                                    dense_acc[child_idx] += contribution;
                                 }
                             }
                         };
@@ -462,12 +447,12 @@ SparseResult compute_kinships_sparse(
 
                         if (individual->father) {
                             int idx = individual->father->data.prev_idx;
-                            if (idx >= 0 && idx < n_prev && current_cut[idx] == individual->father)
+                            if (idx != -1)
                                 term_pp = 0.25f * self_kinships[idx];
                         }
                         if (individual->mother) {
                             int idx = individual->mother->data.prev_idx;
-                            if (idx >= 0 && idx < n_prev && current_cut[idx] == individual->mother)
+                            if (idx != -1)
                                 term_mm = 0.25f * self_kinships[idx];
                         }
                         
