@@ -53,43 +53,42 @@ struct SparseRow {
 };
 
 // Returns the previous generation of a set of individuals.
-std::unordered_set<int> get_previous_generation(Pedigree<> &pedigree,
-    std::unordered_set<int> &ids) {
-    std::unordered_set<int> previous_generation;
-    for (const int id : ids) {
-        Individual<> *individual = pedigree.individuals.at(id);
+std::unordered_set<Individual<Index>*> get_previous_generation(
+    std::unordered_set<Individual<Index>*> &individuals) {
+    std::unordered_set<Individual<Index>*> previous_generation;
+    for (Individual<Index>* individual : individuals) {
         if (individual->father) {
-            previous_generation.insert(individual->father->id);
+            previous_generation.insert(individual->father);
         }
         if (individual->mother) {
-            previous_generation.insert(individual->mother->id);
+            previous_generation.insert(individual->mother);
         }
     }
     return previous_generation;
 }
 
 // Go from the bottom to the top of the pedigree
-std::vector<std::unordered_set<int>> get_generations(Pedigree<> &pedigree,
-    std::vector<int> &proband_ids) {
-    std::vector<std::unordered_set<int>> generations;
-    std::unordered_set<int> generation(proband_ids.begin(), proband_ids.end());
+std::vector<std::unordered_set<Individual<Index>*>> get_generations(
+    std::vector<Individual<Index>*> &probands) {
+    std::vector<std::unordered_set<Individual<Index>*>> generations;
+    std::unordered_set<Individual<Index>*> generation(probands.begin(), probands.end());
     while (!generation.empty()) {
         generations.push_back(generation);
-        generation = get_previous_generation(pedigree, generation);
+        generation = get_previous_generation(generation);
     }
     return generations;
 }
 
 // Drag the individuals up
-std::vector<std::unordered_set<int>> copy_bottom_up(
-    std::vector<std::unordered_set<int>> &generations) {
-    std::vector<std::unordered_set<int>> bottom_up;
-    std::unordered_set<int> ids(generations[0].begin(), generations[0].end());
+std::vector<std::unordered_set<Individual<Index>*>> copy_bottom_up(
+    std::vector<std::unordered_set<Individual<Index>*>> &generations) {
+    std::vector<std::unordered_set<Individual<Index>*>> bottom_up;
+    std::unordered_set<Individual<Index>*> ids(generations[0].begin(), generations[0].end());
     bottom_up.push_back(ids);
     for (int i = 0; i < (int) generations.size() - 1; i++) {
-        std::unordered_set<int> next_generation;
-        std::set<int> set1(bottom_up[i].begin(), bottom_up[i].end());
-        std::set<int> set2(generations[i + 1].begin(), generations[i + 1].end());
+        std::unordered_set<Individual<Index>*> next_generation;
+        std::set<Individual<Index>*> set1(bottom_up[i].begin(), bottom_up[i].end());
+        std::set<Individual<Index>*> set2(generations[i + 1].begin(), generations[i + 1].end());
         set_union(
             set1.begin(), set1.end(),
             set2.begin(), set2.end(),
@@ -102,16 +101,16 @@ std::vector<std::unordered_set<int>> copy_bottom_up(
 }
 
 // Drag the individuals down
-std::vector<std::unordered_set<int>> copy_top_down(
-    std::vector<std::unordered_set<int>> &generations) {
+std::vector<std::unordered_set<Individual<Index>*>> copy_top_down(
+    std::vector<std::unordered_set<Individual<Index>*>> &generations) {
     reverse(generations.begin(), generations.end());
-    std::vector<std::unordered_set<int>> top_down;
-    std::unordered_set<int> ids(generations[0].begin(), generations[0].end());
+    std::vector<std::unordered_set<Individual<Index>*>> top_down;
+    std::unordered_set<Individual<Index>*> ids(generations[0].begin(), generations[0].end());
     top_down.push_back(ids);
     for (int i = 0; i < (int) generations.size() - 1; i++) {
-        std::unordered_set<int> next_generation;
-        std::set<int> set1(top_down[i].begin(), top_down[i].end());
-        std::set<int> set2(generations[i + 1].begin(), generations[i + 1].end());
+        std::unordered_set<Individual<Index>*> next_generation;
+        std::set<Individual<Index>*> set1(top_down[i].begin(), top_down[i].end());
+        std::set<Individual<Index>*> set2(generations[i + 1].begin(), generations[i + 1].end());
         set_union(
             set1.begin(), set1.end(),
             set2.begin(), set2.end(),
@@ -123,20 +122,20 @@ std::vector<std::unordered_set<int>> copy_top_down(
 }
 
 // Find the intersection of the two sets
-std::vector<std::vector<int>> intersect_both_directions(
-    std::vector<std::unordered_set<int>> &bottom_up,
-    std::vector<std::unordered_set<int>> &top_down) {
-    std::vector<std::vector<int>> vertex_cuts;
+std::vector<std::vector<Individual<Index>*>> intersect_both_directions(
+    std::vector<std::unordered_set<Individual<Index>*>> &bottom_up,
+    std::vector<std::unordered_set<Individual<Index>*>> &top_down) {
+    std::vector<std::vector<Individual<Index>*>> vertex_cuts;
     for (int i = 0; i < (int) bottom_up.size(); i++) {
-        std::set<int> set1(bottom_up[i].begin(), bottom_up[i].end());
-        std::set<int> set2(top_down[i].begin(), top_down[i].end());
-        std::vector<int> intersection_result;
+        std::set<Individual<Index>*> set1(bottom_up[i].begin(), bottom_up[i].end());
+        std::set<Individual<Index>*> set2(top_down[i].begin(), top_down[i].end());
+        std::vector<Individual<Index>*> intersection_result;
         set_intersection(
             set1.begin(), set1.end(),
             set2.begin(), set2.end(),
             std::back_inserter(intersection_result)
         );
-        std::vector<int> vertex_cut(intersection_result.begin(), intersection_result.end());
+        std::vector<Individual<Index>*> vertex_cut(intersection_result.begin(), intersection_result.end());
         vertex_cuts.push_back(vertex_cut);
     }
     return vertex_cuts;
@@ -145,21 +144,21 @@ std::vector<std::vector<int>> intersect_both_directions(
 // Separate the individuals into generations where individuals who appear
 // in two non-contiguous generations are dragged in the generations in-between.
 // Based on the recursive-cut algorithm from Kirkpatrick et al.
-std::vector<std::vector<int>> cut_vertices(
-    Pedigree<> &pedigree, std::vector<int> &proband_ids) {
-    std::vector<std::unordered_set<int>> generations;
-    std::vector<std::vector<int>> vertex_cuts;
-    generations = get_generations(pedigree, proband_ids);
-    std::vector<std::unordered_set<int>> bottom_up, top_down;
+std::vector<std::vector<Individual<Index>*>> cut_vertices(
+    std::vector<Individual<Index>*> &probands) {
+    
+    std::vector<std::unordered_set<Individual<Index>*>> generations;
+    std::vector<std::vector<Individual<Index>*>> vertex_cuts;
+    
+    generations = get_generations(probands);
+    std::vector<std::unordered_set<Individual<Index>*>> bottom_up, top_down;
     bottom_up = copy_bottom_up(generations);
     top_down = copy_top_down(generations);
     vertex_cuts = intersect_both_directions(bottom_up, top_down);
-    // Set the last vertex cut to the probands
-    std::vector<int> probands;
-    for (const int id : proband_ids) {
-        probands.push_back(id);
-    }
+    
+    // Set the last vertex cut to the probands explicitly
     vertex_cuts[vertex_cuts.size() - 1] = probands;
+
     return vertex_cuts;
 }
 
@@ -182,7 +181,7 @@ std::vector<std::vector<int>> cut_vertices(
 std::tuple<std::vector<std::array<int, 2>>, std::vector<std::vector<int>>>
 build_maps_sparse(
     int n_next,
-    const std::vector<int>& next_cut_ids,
+    const std::vector<Individual<Index>*>& next_cut,
     const std::unordered_map<int, int>& prev_map_lookup,
     Pedigree<>& pedigree
 ) {
@@ -195,24 +194,22 @@ build_maps_sparse(
     std::vector<std::vector<int>> down_map(prev_map_lookup.size());
     
     for (int i = 0; i < n_next; ++i) {
-        int ind_id = next_cut_ids[i];
+        int id = next_cut[i]->id;
         
-        // CHECK: Is this individual a "Survivor"?
-        // In the Vertex Cut method, some individuals persist from Cut T to Cut T+1.
-        // We treat this as "Cloning": Ind_T -> Ind_T+1 with weight 1.0.
-        auto it = prev_map_lookup.find(ind_id);
+        // Survivor check
+        auto it = prev_map_lookup.find(id);
         if (it != prev_map_lookup.end()) {
             int prev_idx = it->second;
             up_map[i][0] = prev_idx;
-            up_map[i][1] = -2; // SPECIAL FLAG: -2 indicates "Identity Copy"
+            up_map[i][1] = -2; 
             down_map[prev_idx].push_back(i);
         } else {
             // Otherwise, this is a new birth. Look for parents in the previous cut.
-            Individual<>* ind = pedigree.individuals.at(ind_id);
+            Individual<Index>* individual = next_cut[i];
             
             // Map Father
-            if (ind->father) {
-                auto f_it = prev_map_lookup.find(ind->father->id);
+            if (individual->father) {
+                auto f_it = prev_map_lookup.find(individual->father->id);
                 if (f_it != prev_map_lookup.end()) {
                     int f_idx = f_it->second;
                     up_map[i][0] = f_idx;
@@ -221,8 +218,8 @@ build_maps_sparse(
             }
 
             // Map Mother
-            if (ind->mother) {
-                auto m_it = prev_map_lookup.find(ind->mother->id);
+            if (individual->mother) {
+                auto m_it = prev_map_lookup.find(individual->mother->id);
                 if (m_it != prev_map_lookup.end()) {
                     int m_idx = m_it->second;
                     up_map[i][1] = m_idx;
@@ -252,7 +249,15 @@ SparseResult compute_kinships_sparse(
     // We break the pedigree into sequential "cuts" (generations).
     // This allows us to only hold two slices of the matrix in memory at once.
     if (verbose) std::cout << "Computing vertex cuts..." << std::endl;
-    std::vector<std::vector<int>> cuts = cut_vertices(pedigree, proband_ids);
+    Pedigree<Index> kinship_pedigree(pedigree);
+    
+    std::vector<Individual<Index>*> probands;
+    probands.reserve(proband_ids.size());
+    for (const int id : proband_ids) {
+        probands.push_back(kinship_pedigree.individuals.at(id));
+    }
+    
+    std::vector<std::vector<Individual<Index>*>> cuts = cut_vertices(probands);
     
     if (cuts.empty()) {
         return {};
@@ -289,7 +294,7 @@ SparseResult compute_kinships_sparse(
         std::unordered_map<int, int> prev_map_lookup;
         prev_map_lookup.reserve(n_prev);
         for (int i = 0; i < n_prev; ++i) {
-            prev_map_lookup[current_cut[i]] = i;
+            prev_map_lookup[current_cut[i]->id] = i;
         }
 
         // Build the dependency maps (Parents -> Children wiring)
@@ -687,8 +692,18 @@ double get_required_memory_for_kinships(
     if (proband_ids.empty()) {
         proband_ids = get_proband_ids(pedigree);
     }
+    
+    Pedigree<Index> kinship_pedigree(pedigree);
+
     // Cut the vertices (a vertex corresponds to an individual)
-    std::vector<std::vector<int>> vertex_cuts = cut_vertices(pedigree, proband_ids);
+    std::vector<Individual<Index>*> probands;
+    probands.reserve(proband_ids.size());
+    for (const int id : proband_ids) {
+        probands.push_back(kinship_pedigree.individuals.at(id));
+    }
+    
+    // cut_vertices now expects a vector of pointers, which we now have
+    std::vector<std::vector<Individual<Index>*>> vertex_cuts = cut_vertices(probands);
     
     if (vertex_cuts.size() < 2) {
         return 0;  // Not enough cuts to compute kinships
@@ -727,9 +742,14 @@ Matrix<double> compute_kinships(Pedigree<> &pedigree,
     }
     // Convert the pedigree to a kinship pedigree
     Pedigree<Index> kinship_pedigree(pedigree);
+    std::vector<Individual<Index>*> probands;
+    probands.reserve(proband_ids.size());
+    for (const int id : proband_ids) {
+        probands.push_back(kinship_pedigree.individuals.at(id));
+    }
     // Cut the vertices (a vertex corresponds to an individual)
-    std::vector<std::vector<int>> vertex_cuts;
-    vertex_cuts = cut_vertices(pedigree, proband_ids);
+    std::vector<std::vector<Individual<Index>*>> vertex_cuts;
+    vertex_cuts = cut_vertices(probands);
     // Initialize the founders' kinship matrix
     Matrix<double> founder_matrix = zeros<double>(
         vertex_cuts[0].size(), vertex_cuts[0].size()
@@ -741,7 +761,7 @@ Matrix<double> compute_kinships(Pedigree<> &pedigree,
     if (verbose) {
         // Print the vertex cuts
         int count = 0;
-        for (std::vector<int> vertex_cut : vertex_cuts) {
+        for (std::vector<Individual<Index>*> vertex_cut : vertex_cuts) {
             printf("Cut size %d/%d: %d\n",
                 ++count, (int) vertex_cuts.size(), (int) vertex_cut.size());
         }
@@ -755,23 +775,22 @@ Matrix<double> compute_kinships(Pedigree<> &pedigree,
         }
         // Index the founders
         int founder_index = 0;
-        for (const int id : vertex_cuts[i]) {
-            Individual<Index> *individual = kinship_pedigree.individuals.at(id);
+        for (const auto& individual : vertex_cuts[i]) {
             individual->data.index = founder_index++;
         }
         // Initialize the probands' kinship matrix
         Matrix<double> proband_matrix(
             vertex_cuts[i + 1].size(), vertex_cuts[i + 1].size()
         );
-        std::vector<Individual<Index> *> probands;
-        for (const int id : vertex_cuts[i + 1]) {
-            probands.push_back(kinship_pedigree.individuals.at(id));
+        std::vector<Individual<Index> *> next_generation;
+        for (const auto& individual : vertex_cuts[i + 1]) {
+            next_generation.push_back(individual);
         }
         compute_kinship_with_oneself(
-            probands, founder_matrix, proband_matrix
+            next_generation, founder_matrix, proband_matrix
         );
         compute_kinship_between_probands(
-            probands, founder_matrix, proband_matrix
+            next_generation, founder_matrix, proband_matrix
         );
         // The current generation becomes the previous generation
         founder_matrix = std::move(proband_matrix);
