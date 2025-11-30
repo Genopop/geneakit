@@ -279,14 +279,61 @@ SparseResult compute_kinships_sparse(
         // Row(Parent) = [Lower Triangle of Parent] + [Transposed Columns where Parent is col].
         // Here, we build an adjacency list (ut_adj) to quickly find the "Upper Triangle"
         // values needed to reconstruct full rows.
-        std::vector<std::vector<std::pair<int, float>>> ut_adj(n_prev);
-        for(int r = 0; r < n_prev; ++r) {
+        // ---------------------------------------------------------------------
+        // MULTI-THREADED UT_ADJ CONSTRUCTION
+        // ---------------------------------------------------------------------
+        
+        // 1. COUNT PHASE
+        // We determine how big each vector needs to be.
+        // We use an auxiliary 'counts' array to avoid race conditions on vector resizing.
+        std::vector<int> counts(n_prev, 0);
+
+        #pragma omp parallel for
+        for (int r = 0; r < n_prev; ++r) {
             const auto& row = prev_rows[r];
-            for(size_t k = 0; k < row.cols.size(); ++k) {
+            for (size_t k = 0; k < row.cols.size(); ++k) {
                 int c = row.cols[k];
                 if (c != r) {
-                    // If M[r][c] exists, record that M[c][r] effectively exists too.
-                    ut_adj[c].push_back({r, row.vals[k]});
+                    // Atomic increment is necessary because multiple rows (threads)
+                    // might point to the same column 'c'.
+                    #pragma omp atomic
+                    counts[c]++;
+                }
+            }
+        }
+
+        // 2. ALLOCATION PHASE
+        // Serial Step: Resize vectors. This is fast because it's just memory allocation.
+        // We do this serially to avoid complex locking logic during resize.
+        std::vector<std::vector<std::pair<int, float>>> ut_adj(n_prev);
+        
+        // We also reset 'counts' to use it as a "write head" tracker in the next step.
+        // (We preserve the size info implicitly by resizing ut_adj).
+        std::vector<int> write_heads(n_prev, 0);
+
+        #pragma omp parallel for
+        for (int i = 0; i < n_prev; ++i) {
+            if (counts[i] > 0) {
+                ut_adj[i].resize(counts[i]);
+            }
+        }
+
+        // 3. FILL PHASE
+        // Now we can populate the data in parallel without fear of reallocation.
+        #pragma omp parallel for
+        for (int r = 0; r < n_prev; ++r) {
+            const auto& row = prev_rows[r];
+            for (size_t k = 0; k < row.cols.size(); ++k) {
+                int c = row.cols[k];
+                if (c != r) {
+                    // We need a unique index for this specific insertion.
+                    // 'capture' increments the counter and returns the OLD value.
+                    int write_idx;
+                    #pragma omp atomic capture
+                    write_idx = write_heads[c]++;
+                    
+                    // Now write safely to the pre-allocated slot
+                    ut_adj[c][write_idx] = {r, row.vals[k]};
                 }
             }
         }
