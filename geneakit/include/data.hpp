@@ -45,11 +45,13 @@ struct ParentIDs {
     }
 };
 
-// A structure used to find a founder in a founder kinship matrix.
-struct Index {
-    mutable int index;
-    Index() {
-        index = -1;
+// A structure used to locate individuals in kinship matrices.
+struct Indices {
+    mutable int prev_idx;
+    mutable int next_idx;
+    Indices() {
+        prev_idx = -1;
+        next_idx = -1;
     }
 };
 
