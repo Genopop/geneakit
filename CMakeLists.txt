@@ -1,6 +1,16 @@
 cmake_minimum_required(VERSION 3.15...3.29)
 project(cgeneakit LANGUAGES CXX)
 
+# Fetch tsl-robin-map dependency
+include(FetchContent)
+FetchContent_Declare(
+  tsl-robin-map
+  GIT_REPOSITORY https://github.com/Tessil/robin-map.git
+  GIT_TAG v1.3.0
+  GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(tsl-robin-map)
+
 if (CMAKE_VERSION VERSION_LESS 3.18)
   set(DEV_MODULE Development)
 else()
@@ -23,7 +33,7 @@ execute_process(
   OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE nanobind_ROOT)
 find_package(nanobind CONFIG REQUIRED)
 
-nanobind_add_module(cgeneakit NB_STATIC NOMINSIZE
+nanobind_add_module(cgeneakit
     geneakit/lib/create.cpp geneakit/lib/output.cpp
     geneakit/lib/identify.cpp geneakit/lib/extract.cpp
     geneakit/lib/describe.cpp geneakit/lib/compute.cpp
