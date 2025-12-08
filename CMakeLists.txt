@@ -23,7 +23,7 @@ execute_process(
   OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE nanobind_ROOT)
 find_package(nanobind CONFIG REQUIRED)
 
-nanobind_add_module(cgeneakit
+nanobind_add_module(cgeneakit STABLE_ABI
     geneakit/lib/create.cpp geneakit/lib/output.cpp
     geneakit/lib/identify.cpp geneakit/lib/extract.cpp
     geneakit/lib/describe.cpp geneakit/lib/compute.cpp
