@@ -1,16 +1,6 @@
 cmake_minimum_required(VERSION 3.15...3.29)
 project(cgeneakit LANGUAGES CXX)
 
-# Fetch tsl-robin-map dependency
-include(FetchContent)
-FetchContent_Declare(
-  tsl-robin-map
-  GIT_REPOSITORY https://github.com/Tessil/robin-map.git
-  GIT_TAG v1.3.0
-  GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(tsl-robin-map)
-
 if (CMAKE_VERSION VERSION_LESS 3.18)
   set(DEV_MODULE Development)
 else()
