@@ -183,8 +183,7 @@ Pedigree<> convert_pedigree(Pedigree<ParentIDs> &unsorted_pedigree,
             Individual<> *sorted_individual = new Individual(
                 rank++, id, father, mother, individual->sex
             );
-            // Add the individual to the pedigree
-            pedigree.individuals.emplace(id, sorted_individual);
+            individuals.emplace(id, sorted_individual);
         }
         // Add the individuals to the pedigree
         pedigree.ids = unsorted_pedigree.ids;
