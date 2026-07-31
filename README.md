@@ -6,7 +6,7 @@ A set of functions for pedigree analysis, designed for use with data from the [G
 
 ## Documentation
 
-The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GENLIB.pdf) and this README file are sufficient to learn how to use GeneaKit. In addition, documentation is available for all functions through the `help()` function, e.g. `help(gen.phi)`.
+The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GENLIB.pdf) and this README file are sufficient to learn how to use GeneaKit. In addition, documentation is available for all functions through the `help()` function, e.g. `help(geneakit.phi)`.
 
 ## Aims
 
