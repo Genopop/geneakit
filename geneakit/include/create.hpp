@@ -28,7 +28,6 @@ SOFTWARE.
 #include <fstream>
 #include <iostream>
 #include <sstream>
-#include <regex>
 #include "pedigree.hpp"
 
 // Creates an unordered pedigree from a file

@@ -24,6 +24,27 @@ SOFTWARE.
 
 #include "../include/create.hpp"
 
+// Reads the next unsigned integer in [it, end), skipping any leading
+// non-digit characters. Advances it past the digits. Returns false if the
+// range holds no more digits.
+static inline bool next_integer(const char *&it, const char *end, int &value) {
+    // Skip the separators
+    while (it != end && (*it < '0' || *it > '9')) {
+        ++it;
+    }
+    if (it == end) {
+        return false;
+    }
+    // Accumulate the digits
+    int result = 0;
+    while (it != end && *it >= '0' && *it <= '9') {
+        result = result * 10 + (*it - '0');
+        ++it;
+    }
+    value = result;
+    return true;
+}
+
 // Creates an unordered pedigree from a file
 Pedigree<ParentIDs> create_unsorted_pedigree(std::string pedigree_file) {
     // Initialize the pedigree
@@ -41,19 +62,19 @@ Pedigree<ParentIDs> create_unsorted_pedigree(std::string pedigree_file) {
     std::string line;
     // Ignore the first line
     getline(file, line);
-    std::regex pattern("\\D+|(\\d+)\\D*(\\d+)\\D*(\\d+)\\D*(\\d+)\\D*");
     while (getline(file, line)) {
-        // Parse the line using a regular expression to handle various separators
-        std::smatch match;
-        if (!std::regex_search(line, match, pattern)) {
+        // Parse the four integers, using any non-digit run as a separator
+        const char *it = line.data();
+        const char *end = it + line.size();
+        int id, father_id, mother_id, sex;
+        if (!next_integer(it, end, id) ||
+            !next_integer(it, end, father_id) ||
+            !next_integer(it, end, mother_id) ||
+            !next_integer(it, end, sex)) {
             std::cerr << "Invalid line format in pedigree file: " <<
                 line << std::endl;
             exit(1);
         }
-        int id = std::stoi(match[1]);
-        int father_id = std::stoi(match[2]);
-        int mother_id = std::stoi(match[3]);
-        int sex = std::stoi(match[4]);
         // Create the individual
         Individual<ParentIDs> *individual = new Individual<ParentIDs>(
             rank++, id, nullptr, nullptr, (Sex) sex
