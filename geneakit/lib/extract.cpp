@@ -98,7 +98,7 @@ Pedigree<> extract_pedigree(Pedigree<> &pedigree,
         mark_descendants(ancestor);
     }
     // Add the relevant individuals to the new pedigree
-    std::vector<int> ids;
+    std::deque<int> ids;
     std::unordered_map<int, Individual<> *> individuals;
     int rank = 0;
     bool (*condition)(Individual<Status> *);
@@ -156,7 +156,7 @@ Pedigree<> extract_lineages(Pedigree<> &pedigree,
         }
     }
     // Add the relevant individuals to the new pedigree
-    std::vector<int> ids;
+    std::deque<int> ids;
     std::unordered_map<int, Individual<> *> individuals;
     int rank = 0;
     for (const int id : extract_pedigree.ids) {
@@ -178,12 +178,6 @@ Pedigree<> extract_lineages(Pedigree<> &pedigree,
                 rank++, individual->id, father, mother, individual->sex
             );
             individuals.emplace(id, new_individual);
-            if (father) {
-                father->children.push_back(individuals.at(id));
-            }
-            if (mother) {
-                mother->children.push_back(individuals.at(id));
-            }
             ids.push_back(id);
         }
     }

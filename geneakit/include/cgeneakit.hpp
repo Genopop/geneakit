@@ -4,6 +4,7 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/make_iterator.h>
 #include <nanobind/stl/tuple.h>
+#include <stdexcept>
 
 /*------------------------------------------------------------------------------
 MIT License
@@ -35,5 +36,6 @@ SOFTWARE.
 #include "output.hpp"
 #include "describe.hpp"
 #include "compute.hpp"
+#include "edit.hpp"
 
 namespace nb = nanobind;

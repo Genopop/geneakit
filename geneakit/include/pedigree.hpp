@@ -26,18 +26,29 @@ SOFTWARE.
 ------------------------------------------------------------------------------*/
 
 #include "individual.hpp"
+#include <deque>
 #include <unordered_map>
 
 // A structure to represent a pedigree.
+//
+// `ids` is kept in a valid topological order (a parent always appears
+// before its children), which extraction and traversal code relies on.
+// It is a deque rather than a vector so that edits can grow it from
+// either end in O(1): a newly added individual with at least one known
+// parent is appended at the back (it must come after that parent, who is
+// already somewhere in the deque), while a newly added individual with no
+// known parents is pushed to the front (nothing constrains it to come
+// after anyone, so putting it first leaves it free to be attached as an
+// ancestor of any existing individual later, without moving anyone else).
 template <typename T = Empty>
 struct Pedigree {
-    std::vector<int> ids;
+    std::deque<int> ids;
     std::unordered_map<int, Individual<T> *> individuals;
     // Constructors
     Pedigree() {};
     Pedigree(std::vector<int> ids,
         std::unordered_map<int, Individual<T> *> individuals) :
-        ids(ids), individuals(individuals) {};
+        ids(ids.begin(), ids.end()), individuals(individuals) {};
     // Copy constructor
     Pedigree(const Pedigree<T>& other) {
         ids = other.ids;

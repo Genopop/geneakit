@@ -4,6 +4,7 @@ NB_MODULE(cgeneakit, m) {
     m.doc() = "A C++/Python module for genealogical analysis.";
 
     nb::class_<Pedigree<>>(m, "Pedigree")
+        .def(nb::init<>())
         .def(nb::init<std::vector<int>, std::unordered_map<int, Individual<> *>>())
         .def("__str__", [] (Pedigree<> &pedigree) {
             return "A pedigree with:\n - " +
@@ -36,6 +37,38 @@ NB_MODULE(cgeneakit, m) {
                 return *pedigree.individuals.at(id);
             }
         })
+        .def("__contains__", [] (Pedigree<> &pedigree, int id) {
+            return pedigree.individuals.find(id) != pedigree.individuals.end();
+        },
+        "Returns whether an individual ID is in the pedigree, in O(1).")
+        .def("__setitem__", [] (Pedigree<> &pedigree, int id,
+        std::tuple<int, int, int> father_mother_sex) {
+            auto [father_id, mother_id, sex] = father_mother_sex;
+            try {
+                set_individual(pedigree, id, father_id, mother_id, sex);
+            } catch (const std::out_of_range &error) {
+                throw nb::key_error(error.what());
+            }
+        },
+        "Adds or updates an individual: "
+        "pedigree[id] = (father_id, mother_id, sex). "
+        "A parent ID of 0 means unknown, and sex is 0 (unknown), "
+        "1 (male) or 2 (female). Parents must already be in the "
+        "pedigree. A parent with no parents of their own (a founder) "
+        "can always be used, even to retroactively become the parent "
+        "of an individual added earlier; otherwise the parent must "
+        "have been added before the child.")
+        .def("__delitem__", [] (Pedigree<> &pedigree, int id) {
+            try {
+                remove_individual(pedigree, id);
+            } catch (const std::out_of_range &error) {
+                throw nb::key_error(error.what());
+            }
+        },
+        "Removes an individual from the pedigree: del pedigree[id]. "
+        "Any children lose that side of their lineage (their father "
+        "or mother becomes unknown) rather than being removed "
+        "themselves.")
         .def("__len__", &get_number_of_individuals)
         .def("__iter__", [] (Pedigree<> &pedigree) {
             return nb::make_iterator(
@@ -46,7 +79,7 @@ NB_MODULE(cgeneakit, m) {
             );
         }, nb::keep_alive<0,1>())
         .def("keys", [] (Pedigree<> &pedigree) {
-            return pedigree.ids;
+            return std::vector<int>(pedigree.ids.begin(), pedigree.ids.end());
         })
         .def("items", [] (Pedigree<> &pedigree) {
             return nb::make_iterator(

@@ -27,7 +27,7 @@ nanobind_add_module(cgeneakit
     geneakit/lib/create.cpp geneakit/lib/output.cpp
     geneakit/lib/identify.cpp geneakit/lib/extract.cpp
     geneakit/lib/describe.cpp geneakit/lib/compute.cpp
-    geneakit/lib/cgeneakit.cpp)
+    geneakit/lib/edit.cpp geneakit/lib/cgeneakit.cpp)
 
 # Find OpenMP compiler flags
 find_package(OpenMP COMPONENTS CXX)

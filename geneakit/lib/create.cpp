@@ -50,7 +50,7 @@ Pedigree<ParentIDs> create_unsorted_pedigree(std::string pedigree_file) {
     // Initialize the pedigree
     Pedigree<ParentIDs> unsorted_pedigree = Pedigree<ParentIDs>();
     std::unordered_map<int, Individual<ParentIDs> *> individuals;
-    std::vector<int> ids;
+    std::deque<int> ids;
     int rank = 0;
     // Read the pedigree file
     std::ifstream file(pedigree_file);
@@ -113,7 +113,7 @@ Pedigree<ParentIDs> create_unsorted_pedigree(std::vector<int> ids,
     }
     // Add the individuals to the pedigree
     unsorted_pedigree.individuals = individuals;
-    unsorted_pedigree.ids = ids;
+    unsorted_pedigree.ids.assign(ids.begin(), ids.end());
     return unsorted_pedigree;
 }
 
