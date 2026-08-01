@@ -5,9 +5,10 @@ import pandas as pd
 from scipy.sparse import csr_matrix, coo_matrix, issparse
 from scipy.stats import bootstrap
 
+
 def phi(gen, **kwargs):
     """Compute kinship coefficients between probands.
-    
+
     Args:
         gen (cgeneakit.Pedigree): Initialized genealogy object.
         pro (list, optional): Proband IDs. Defaults to all probands.
@@ -18,7 +19,7 @@ def phi(gen, **kwargs):
         raw (bool, default False): If True:
             - Sparse mode: returns (csr_matrix, ids). Matrix is LOWER TRIANGULAR.
             If False (default): returns pd.DataFrame (SparseDataFrame if sparse=True).
-    
+
     Returns:
         pd.DataFrame: Default.
         tuple: (matrix, list) If raw=True.
@@ -30,15 +31,15 @@ def phi(gen, **kwargs):
     compute = kwargs.get('compute', True)
     sparse = kwargs.get('sparse', False)
     raw = kwargs.get('raw', False)
-    
+
     if not compute:
         required_memory = cgeneakit.get_required_memory_for_kinships(gen, pro)
         print(f'You will require at least {round(required_memory, 2)} GB of RAM.')
         return
-    
+
     if verbose:
         begin = time.time()
-        
+
     if sparse:
         if raw:
             # Mode 1: Raw output (Lower Triangular CSR)
@@ -46,17 +47,17 @@ def phi(gen, **kwargs):
             data, indices, indptr = cgeneakit.compute_kinships_sparse(
                 gen, pro, verbose, False
             )
-            
+
             lt_matrix = csr_matrix(
-                (data, indices, indptr), 
+                (data, indices, indptr),
                 shape=(len(pro), len(pro)),
                 copy=False
             )
-            
+
             if verbose:
                 print(f'Elapsed time: {round(time.time() - begin, 2)} seconds')
             return lt_matrix, pro
-            
+
         else:
             # Mode 2: DataFrame output (Symmetrical COO)
             # Call C++ with symmetric_coo=True
@@ -64,19 +65,19 @@ def phi(gen, **kwargs):
             data, rows, cols = cgeneakit.compute_kinships_sparse(
                 gen, pro, verbose, True
             )
-            
+
             # Create Symmetric COO Matrix directly from C++ vectors
             sym_matrix = coo_matrix(
-                (data, (rows, cols)), 
+                (data, (rows, cols)),
                 shape=(len(pro), len(pro)),
                 copy=False
             )
-            
+
             # Create Sparse DataFrame directly
             kinship_matrix = pd.DataFrame.sparse.from_spmatrix(
                 sym_matrix, index=pro, columns=pro
             )
-            
+
             if verbose:
                 print(f'Elapsed time: {round(time.time() - begin, 2)} seconds')
             return kinship_matrix
@@ -84,21 +85,22 @@ def phi(gen, **kwargs):
     else:
         cmatrix = cgeneakit.compute_kinships(gen, pro, verbose)
         kinship_matrix = pd.DataFrame(cmatrix, index=pro, columns=pro, copy=False)
-    
+
     if verbose:
         end = time.time()
         print(f'Elapsed time: {round(end - begin, 2)} seconds')
     return kinship_matrix
 
+
 def phiMean(kinship_matrix):
     """Calculate mean kinship coefficient excluding self-pairs
-    
+
     Args:
         kinship_matrix (pd.DataFrame | csr_matrix): Kinship matrix from gen.phi()
-        
+
     Returns:
         float: Mean kinship coefficient across all unique proband pairs
-        
+
     Examples:
         >>> import geneakit as gen
         >>> from geneakit import geneaJi
@@ -110,10 +112,10 @@ def phiMean(kinship_matrix):
     """
     if issparse(kinship_matrix) or hasattr(kinship_matrix, "sparse"):
         if isinstance(kinship_matrix, pd.DataFrame):
-             total = kinship_matrix.sum().sum()
-             # Approximate access for DataFrame to avoid densifying
-             # Assuming standard extraction:
-             diag_sum = np.diag(kinship_matrix).sum() 
+            total = kinship_matrix.sum().sum()
+            # Approximate access for DataFrame to avoid densifying
+            # Assuming standard extraction:
+            diag_sum = np.diag(kinship_matrix).sum()
         else:
             total = kinship_matrix.sum()
             diag_sum = kinship_matrix.diagonal().sum()
@@ -125,22 +127,23 @@ def phiMean(kinship_matrix):
             diag_sum = np.diag(kinship_matrix.values).sum()
         else:
             diag_sum = np.diag(kinship_matrix).sum()
-        
+
     n = kinship_matrix.shape[0]
     return (total - diag_sum) / (n**2 - n)
 
+
 def phiOver(phiMatrix, threshold):
     """Identify proband pairs exceeding kinship threshold
-    
+
     Args:
         phiMatrix (pd.DataFrame | csr_matrix): Kinship matrix from gen.phi()
         threshold (float): Minimum kinship value (0-0.5+)
-        
+
     Returns:
         pd.DataFrame: Pairs exceeding threshold with columns:
             - pro1, pro2: Individual IDs if DataFrame input; indices if csr_matrix input
             - kinship: Coefficient value
-            
+
     Examples:
         >>> import geneakit as gen
         >>> from geneakit import geneaJi
@@ -152,9 +155,9 @@ def phiOver(phiMatrix, threshold):
         0     2     1  0.371094
     """
     pairs = []
-    
+
     is_sp = issparse(phiMatrix) or hasattr(phiMatrix, "sparse")
-    
+
     if is_sp:
         if isinstance(phiMatrix, pd.DataFrame):
             cx = phiMatrix.sparse.to_coo()
@@ -164,10 +167,10 @@ def phiOver(phiMatrix, threshold):
             idx_map = None
 
         for i, j, v in zip(cx.row, cx.col, cx.data):
-            if i > j and v > threshold: 
+            if i > j and v > threshold:
                 pairs.append({
-                    'pro1': idx_map[i] if idx_map is not None else i, 
-                    'pro2': idx_map[j] if idx_map is not None else j, 
+                    'pro1': idx_map[i] if idx_map is not None else i,
+                    'pro2': idx_map[j] if idx_map is not None else j,
                     'kinship': v
                 })
         return pd.DataFrame(pairs)
@@ -186,17 +189,18 @@ def phiOver(phiMatrix, threshold):
                 })
     return pd.DataFrame(pairs)
 
+
 def phiCI(phiMatrix, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
     """Calculate bootstrap confidence intervals for mean kinship
-    
+
     Args:
         phiMatrix (pd.DataFrame | np.ndarray | csr_matrix): Kinship matrix
         prob (list): Confidence probabilities (default: 95% CI)
         b (int): Bootstrap resamples (default: 5000)
-        
+
     Returns:
         pd.DataFrame: Confidence bounds for each probability pair
-        
+
     Examples:
         >>> import geneakit as gen
         >>> from geneakit import genea140
@@ -209,28 +213,28 @@ def phiCI(phiMatrix, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
     """
     phi_array = phiMatrix.to_numpy() if isinstance(phiMatrix, pd.DataFrame) else phiMatrix
     if issparse(phiMatrix):
-        phi_array = phiMatrix.toarray() 
+        phi_array = phiMatrix.toarray()
         if isinstance(phiMatrix, csr_matrix):
             # Convert CSR to dense array and symmetrize
             phi_array = phi_array + phi_array.T - np.diag(np.diag(phi_array))
 
     n = phi_array.shape[0]
     data = (np.arange(n),)
-    
+
     def statistic(indices):
         submatrix = phi_array[indices][:, indices]
         elements_less_than_half = submatrix[submatrix < 0.5]
         return np.mean(elements_less_than_half) if elements_less_than_half.size > 0 else np.nan
-    
+
     sorted_prob = sorted(prob)
     quantiles = {}
     i, j = 0, len(sorted_prob) - 1
-    
+
     while i < j:
         lower = sorted_prob[i]
         upper = sorted_prob[j]
         confidence_level = upper - lower
-        
+
         res = bootstrap(
             data,
             statistic,
@@ -243,22 +247,23 @@ def phiCI(phiMatrix, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
         quantiles[upper] = res.confidence_interval.high
         i += 1
         j -= 1
-    
+
     results = [quantiles.get(p, np.nan) for p in prob]
     return pd.DataFrame([results], columns=[f"{p*100}%" for p in prob], index=["Mean"])
 
+
 def f(gen, **kwargs):
     """Calculate inbreeding coefficients (F) for probands
-    
+
     Args:
         gen (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs (default: all)
-        
+
     Returns:
         pd.DataFrame: Inbreeding coefficients with:
             - Index: Proband IDs
             - Column: 'F' values (0-1)
-            
+
     Examples:
         >>> import geneakit as gen
         >>> from geneakit import geneaJi
@@ -276,17 +281,18 @@ def f(gen, **kwargs):
     cmatrix = cgeneakit.compute_inbreedings(gen, pro)
     return pd.DataFrame(cmatrix, index=pro, columns=['F'], copy=False)
 
+
 def fCI(vectF, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
     """Calculate BCa bootstrap confidence intervals for mean inbreeding
-    
+
     Args:
         vectF (pd.DataFrame | np.ndarray): Inbreeding coefficients
         prob (list): Confidence probabilities
         b (int): Bootstrap resamples
-        
+
     Returns:
         pd.DataFrame: Confidence bounds using bias-corrected method
-        
+
     Examples:
         >>> import geneakit as gen
         >>> from geneakit import geneaJi
@@ -300,20 +306,20 @@ def fCI(vectF, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
     f_array = vectF.to_numpy() if isinstance(vectF, pd.DataFrame) else np.array(vectF)
     n = f_array.shape[0]
     data = (np.arange(n),)
-    
+
     def statistic(indices):
         submatrix = f_array[indices]
         return np.mean(submatrix)
-    
+
     sorted_prob = sorted(prob)
     quantiles = {}
     i, j = 0, len(sorted_prob) - 1
-    
+
     while i < j:
         lower = sorted_prob[i]
         upper = sorted_prob[j]
         confidence_level = upper - lower
-        
+
         res = bootstrap(
             data,
             statistic,
@@ -326,24 +332,25 @@ def fCI(vectF, prob=[0.025, 0.05, 0.95, 0.975], b=5000):
         quantiles[upper] = res.confidence_interval.high
         i += 1
         j -= 1
-    
+
     results = [quantiles.get(p, np.nan) for p in prob]
     return pd.DataFrame([results], columns=[f"{p*100}%" for p in prob], index=["Mean"])
 
+
 def gc(pedigree, **kwargs):
     """Compute genetic contribution of ancestors to probands
-    
+
     Args:
         pedigree (cgeneakit.Pedigree): Initialized genealogy object
         pro (list, optional): Proband IDs (default: all)
         ancestors (list, optional): Founder IDs (default: all founders)
-        
+
     Returns:
         pd.DataFrame: Contribution matrix with:
             - Rows: Proband IDs
             - Columns: Ancestor IDs
             - Values: Expected genetic contributions
-            
+
     Examples:
         >>> import geneakit as gen
         >>> from geneakit import geneaJi
@@ -361,6 +368,6 @@ def gc(pedigree, **kwargs):
         pro = cgeneakit.get_proband_ids(pedigree)
     if ancestors is None:
         ancestors = cgeneakit.get_founder_ids(pedigree)
-        
+
     cmatrix = cgeneakit.compute_genetic_contributions(pedigree, pro, ancestors)
     return pd.DataFrame(cmatrix, index=pro, columns=ancestors, copy=False)

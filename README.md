@@ -6,7 +6,9 @@ A set of functions for pedigree analysis, designed for use with data from the [G
 
 ## Documentation
 
-The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GENLIB.pdf) and this README file are sufficient to learn how to use GeneaKit. In addition, documentation is available for all functions through the `help()` function, e.g. `help(geneakit.phi)`.
+Full API documentation is published at **[genopop.github.io/geneakit](https://genopop.github.io/geneakit/)**, generated from the docstrings on every push to `main`.
+
+The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GENLIB.pdf) and this README file are also sufficient to learn how to use GeneaKit. In addition, documentation is available for all functions through the `help()` function, e.g. `help(geneakit.phi)`.
 
 ## Aims
 
@@ -23,6 +25,7 @@ The [GENLIB reference manual](https://cran.r-project.org/web/packages/GENLIB/GEN
 * Extract a subpedigree from a pedigree;
 * Describe a pedigree, such as the number of individuals and its completeness;
 * Compute information about a pedigree, such as the pairwise kinship coefficients of probands and the genetic contributions of ancestors;
+* Draw a pedigree, as GENLIB does with `gen.graph()`;
 * (Eventually) Simulate information about pedigrees and individuals.
 
 ## System Requirements
@@ -113,12 +116,34 @@ The mean kinship coefficient should be 0.0011437357709631094.
 
 On a MacBook Air M3, the computation took about 3 seconds. As a comparison, the equivalent computation in R takes about 3 minutes on the same computer.
 
+## Drawing Pedigrees
+
+`geneakit.graph()` is the counterpart of GENLIB's `gen.graph()`, and follows the standard pedigree nomenclature (Bennett et al. 1995, 2008, 2022).
+
+```python
+import geneakit as gen
+import matplotlib.pyplot as plt
+from geneakit import geneaJi
+ped = gen.genealogy(geneaJi)
+gen.graph(ped, title='Jicaque pedigree')
+plt.savefig('jicaque.png', dpi=200, bbox_inches='tight')
+```
+
+As in GENLIB, `pro` and `ancestors` extract a subpedigree before drawing. Any per-individual variable may be mapped onto the symbols, numeric values through a colormap, which is a convenient way of showing genetic contributions, inbreeding coefficients or carrier probabilities:
+
+```python
+from geneakit import genea140
+ped = gen.genealogy(genea140)
+sub = gen.branching(ped, pro=[409033, 408728])
+gen.graph(sub, fill=gen.gc(sub).loc[409033], labels=False, cmap='magma')
+```
+
+The layout engine is not a port of `kinship2`, but the returned `PedigreeLayout` carries the same fields as the list returned by `kinship2::plot.pedigree` (`n`, `nid`, `pos`, `fam`, `spouse`, `x`, `y`, `boxw`, `boxh`), so that ported R code keeps working. See `help(gen.graph)` for the drawing conventions and the full list of arguments.
+
 ## GENLIB Functions Not Included
 
 | Function                    | Description                                                                    |
 | --------------------------- | ------------------------------------------------------------------------------ |
-| `gen.graph`                 | Pedigree graphical tool                                                        |
-|                             |                                                                                |
 | `gen.simuHaplo`             | Gene dropping simulations - haplotypes                                         |
 | `gen.simuHaplo_convert`     | Convert proband simulation results into sequence data given founder haplotypes |
 | `gen.simuHaplo_IBD_compare` | Compare proband haplotypes for IBD sharing                                     |

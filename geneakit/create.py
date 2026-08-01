@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import cgeneakit
 
+
 def genealogy(input, **kwargs):
     """Create a Genealogy object from pedigree data
 
@@ -13,21 +14,21 @@ def genealogy(input, **kwargs):
         input (pd.DataFrame | str): Input data source, either:
             - DataFrame with columns: ['ind', 'father', 'mother', 'sex']
             - Path to text file with same columns (tab or space separated)
-        sorted (bool, optional): Sort individuals chronologically with 
+        sorted (bool, optional): Sort individuals chronologically with
             parents before children. Defaults to False.
-            
+
     Returns:
         cgeneakit.Pedigree: Compiled genealogy object with familial links
-        and metadata
-        
+            and metadata
+
     Raises:
         FileNotFoundError: If provided file path doesn't exist
         ValueError: If input DataFrame has incorrect columns
-        
+
     Examples:
         >>> import geneakit as gen
         >>> import pandas as pd
-        
+
         ### From DataFrame
         >>> df = pd.DataFrame({
         ...     'ind': [1,2,3],
@@ -36,7 +37,7 @@ def genealogy(input, **kwargs):
         ...     'sex': [1,2,1]
         ... })
         >>> ped = gen.genealogy(df)
-        
+
         ### From file
         >>> ped = gen.genealogy("family_data.csv", sorted=True)
 
@@ -47,7 +48,7 @@ def genealogy(input, **kwargs):
         - File format should be UTF-8 encoded with header row
     """
     sorted = kwargs.get('sorted', False)
-    if type(input) == pd.DataFrame:
+    if isinstance(input, pd.DataFrame):
         dataframe = input
         ids = dataframe.iloc[:, 0].values
         father_ids = dataframe.iloc[:, 1].values
@@ -58,9 +59,9 @@ def genealogy(input, **kwargs):
         pedigree = cgeneakit.load_pedigree_from_vectors(
             ids, father_ids, mother_ids, sexes, sorted)
         return pedigree
-    elif type(input) == str:
+    elif isinstance(input, str):
         file_path = input
         if not os.path.exists(input):
             raise FileNotFoundError('File not found: ' + file_path)
         pedigree = cgeneakit.load_pedigree_from_file(file_path, sorted)
-        return pedigree   
+        return pedigree
