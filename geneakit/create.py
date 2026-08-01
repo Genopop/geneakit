@@ -14,8 +14,13 @@ def genealogy(input, **kwargs):
         input (pd.DataFrame | str): Input data source, either:
             - DataFrame with columns: ['ind', 'father', 'mother', 'sex']
             - Path to text file with same columns (tab or space separated)
-        sorted (bool, optional): Sort individuals chronologically with
-            parents before children. Defaults to False.
+        sorted (bool, optional): Declare that the input is already in
+            topological order, every parent listed before their children.
+            The sorting pass is then skipped and the given order is kept.
+            Defaults to False, which sorts the pedigree by depth-first
+            search. This flag asserts a property of the input rather than
+            asking for one: passing True for a pedigree that is not already
+            sorted raises IndexError.
 
     Returns:
         cgeneakit.Pedigree: Compiled genealogy object with familial links
@@ -24,6 +29,8 @@ def genealogy(input, **kwargs):
     Raises:
         FileNotFoundError: If provided file path doesn't exist
         ValueError: If input DataFrame has incorrect columns
+        IndexError: If sorted=True but a child is listed before one of its
+            parents
 
     Examples:
         >>> import geneakit as gen
@@ -39,10 +46,16 @@ def genealogy(input, **kwargs):
         >>> ped = gen.genealogy(df)
 
         ### From file
-        >>> ped = gen.genealogy("family_data.csv", sorted=True)
+        >>> ped = gen.genealogy("family_data.csv")
+
+        ### From a file already ordered with parents before children
+        >>> ped = gen.genealogy("sorted_data.csv", sorted=True)
 
     Notes:
         - Required column order: ID, Father ID, Mother ID, Sex
+        - The `sorted` flag of gen.genout() is unrelated: it asks for the
+          output to be sorted by ID, whereas this one declares that the
+          input is already in topological order
         - Unknown parents should be marked with 0
         - Sex encoding: 1/M = Male, 2/F = Female, 0/U = Unknown
         - File format should be UTF-8 encoded with header row
