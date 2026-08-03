@@ -54,10 +54,14 @@ NB_MODULE(cgeneakit, m) {
         "pedigree[id] = (father_id, mother_id, sex). "
         "A parent ID of 0 means unknown, and sex is 0 (unknown), "
         "1 (male) or 2 (female). Parents must already be in the "
-        "pedigree. A parent with no parents of their own (a founder) "
-        "can always be used, even to retroactively become the parent "
-        "of an individual added earlier; otherwise the parent must "
-        "have been added before the child.")
+        "pedigree; use update() to add an individual and their parents "
+        "in one go. Any individual may be made the parent of any other, "
+        "in either direction, as long as they are not one of their "
+        "descendants: the pedigree reorders itself so that parents keep "
+        "coming before their children, moving only the individuals the "
+        "new link actually constrains. A new individual is appended at "
+        "the end, so iteration follows the order individuals were added "
+        "until a correction requires otherwise.")
         .def("__delitem__", [] (Pedigree<> &pedigree, int id) {
             try {
                 remove_individual(pedigree, id);
@@ -85,18 +89,63 @@ NB_MODULE(cgeneakit, m) {
             return nb::make_iterator(
                 nb::type<Pedigree<>>(),
                 "items_iterator",
-                pedigree.individuals.begin(),
-                pedigree.individuals.end()
+                PedigreeItemIterator(&pedigree, 0),
+                PedigreeItemIterator(&pedigree, pedigree.ids.size())
             );
-        }, nb::keep_alive<0,1>())
+        }, nb::keep_alive<0,1>(),
+        "Yields (id, individual) pairs in the same order as keys().")
         .def("values", [] (Pedigree<> &pedigree) {
-            return nb::make_value_iterator(
+            return nb::make_iterator(
                 nb::type<Pedigree<>>(),
                 "values_iterator",
-                pedigree.individuals.begin(),
-                pedigree.individuals.end()
+                PedigreeValueIterator(&pedigree, 0),
+                PedigreeValueIterator(&pedigree, pedigree.ids.size())
             );
-        }, nb::keep_alive<0,1>());
+        }, nb::keep_alive<0,1>(),
+        "Yields the individuals in the same order as keys().")
+        .def("update", [] (Pedigree<> &pedigree, nb::object source) {
+            nb::object rows = nb::hasattr(source, "items")
+                ? source.attr("items")() : source;
+            std::vector<PedigreeEntry> entries;
+            nb::iterator it = nb::iter(rows);
+            for (; it != nb::iterator::sentinel(); ++it) {
+                nb::object row = nb::borrow(*it);
+                int id, father_id, mother_id, sex;
+                if (nb::len(row) == 2) {
+                    auto pair = nb::cast<
+                        std::pair<int, std::tuple<int, int, int>>>(row);
+                    id = pair.first;
+                    std::tie(father_id, mother_id, sex) = pair.second;
+                } else {
+                    std::tie(id, father_id, mother_id, sex) =
+                        nb::cast<std::tuple<int, int, int, int>>(row);
+                }
+                entries.push_back(
+                    PedigreeEntry{id, father_id, mother_id, sex});
+            }
+            try {
+                set_individuals(pedigree, entries);
+            } catch (const std::out_of_range &error) {
+                throw nb::key_error(error.what());
+            }
+        },
+        "Adds or updates many individuals at once: "
+        "pedigree.update({id: (father_id, mother_id, sex), ...}), or any "
+        "iterable of (id, father_id, mother_id, sex) records. Records may "
+        "name parents that other records in the same batch introduce, so "
+        "a whole sub-pedigree can be added without sorting it first. The "
+        "order is repaired once for the whole batch rather than once per "
+        "record. If the batch is rejected, the pedigree is left untouched.")
+        .def("remove", [] (Pedigree<> &pedigree, std::vector<int> ids) {
+            try {
+                remove_individuals(pedigree, ids);
+            } catch (const std::out_of_range &error) {
+                throw nb::key_error(error.what());
+            }
+        },
+        "Removes many individuals at once: pedigree.remove([id, ...]). "
+        "Their children lose that side of their lineage, as with del. If "
+        "any ID is missing, nothing is removed.");
 
     nb::class_<Individual<>>(m, "Individual")
         .def(nb::init<int, int, Individual<> *, Individual<> *, Sex>())

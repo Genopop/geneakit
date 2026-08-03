@@ -26,43 +26,100 @@ SOFTWARE.
 ------------------------------------------------------------------------------*/
 
 #include "pedigree.hpp"
+#include <vector>
 
-// Adds a new individual to the pedigree, or updates the sex and parents of
-// an individual that is already present.
+// One (individual, father, mother, sex) record, as accepted by
+// `set_individuals`. A parent ID of 0 means "unknown".
+struct PedigreeEntry {
+    int id;
+    int father_id;
+    int mother_id;
+    int sex;
+};
+
+// Adds a new individual to the pedigree, or updates the sex and the parents
+// of an individual that is already present.
 //
-// A new individual with at least one known parent is appended after it
-// (parents must already exist in the pedigree), so a rank past the current
-// maximum keeps it ordered: O(1) amortized, and nobody else is touched. A
-// new individual with no known parents (a founder) is instead inserted
-// with a rank below the current minimum, which leaves it free to become
-// the parent of any individual already in the pedigree later - including
-// one added long before it - since it starts out ordered before all of
-// them. Updating an existing individual's parents only ever needs to check
-// that the new parent's rank is already lower, so retroactively attaching
-// a founder as someone's parent is also O(1); attaching an individual that
-// itself has parents (and so has a fixed position from when it was added)
-// is only allowed if it already comes before the child, which is what
-// keeps the whole pedigree topologically ordered without ever having to
-// renumber it, and also rules out creating a cycle. The individual's
-// identity (its pointer) never changes on update, so any raw pointers
-// already held by its children (via child->father / child->mother) stay
-// valid.
+// The pedigree keeps two invariants at all times, and this function is
+// responsible for restoring both after every edit:
+//
+//   (1) `ids` is topologically ordered: a parent always appears before
+//       their children;
+//   (2) `rank` is exactly the position in `ids`, so ranks are always the
+//       dense range 0..N-1, with no gaps and no negative values.
+//
+// A brand-new individual is appended at the back with rank N, which is
+// O(1): both of its parents (if any) must already be in the pedigree and
+// therefore already come before it.
+//
+// Re-parenting an individual that is already present may genuinely require
+// moving people. Setting individual A as the parent of individual B when A
+// currently comes after B is a legitimate correction as long as A is not a
+// descendant of B, and it is accepted: the order is repaired incrementally
+// with the algorithm of Pearce & Kelly (2007), "A Dynamic Topological Sort
+// Algorithm for Directed Acyclic Graphs", ACM Journal of Experimental
+// Algorithmics 11. Only the individuals that lie between A and B in the
+// current order and that are actually constrained by the new link are
+// touched; everybody outside that window keeps their rank, which is what
+// allows the ranks to stay dense without renumbering the whole pedigree.
+// The cost is O(K log K) where K is the number of individuals that really
+// have to move, not O(N).
+//
+// The individual's identity (its pointer) never changes on update, so any
+// raw pointers already held by its children stay valid. Every check is
+// performed before anything is modified, so a rejected edit leaves the
+// pedigree exactly as it was.
 //
 // Throws std::invalid_argument for data that would make the pedigree
 // inconsistent (unknown sex code, an individual named as their own parent,
-// a parent whose recorded sex conflicts with the requested role, or a
-// non-founder parent that comes after the individual being updated).
-// Throws std::out_of_range if a referenced parent ID is not in the
-// pedigree.
+// the same individual given as both parents, a parent whose recorded sex
+// conflicts with the requested role, or a parent that is a descendant of
+// the individual, which would create a cycle). Throws std::out_of_range if
+// a referenced parent ID is not in the pedigree.
 void set_individual(Pedigree<> &pedigree, int id, int father_id,
     int mother_id, int sex);
+
+// Applies a whole batch of records at once, then repairs the order with a
+// single topological sort: O(N + M) for the entire batch, instead of one
+// incremental repair per record.
+//
+// Besides being faster for bulk corrections, the batch form is strictly
+// more expressive than repeated calls to `set_individual`: records may
+// refer to parents that are themselves defined later in the same batch, so
+// a whole sub-pedigree can be spliced in in one go without having to sort
+// it by hand first. Ties are broken in favour of the order the pedigree
+// already had, so the result stays as close as possible to the previous
+// ordering, and individuals new to the pedigree keep the order in which
+// they first appear in the batch.
+//
+// If the same ID appears more than once, the last record wins, as in
+// `dict.update`. Nothing is modified until every record has been validated
+// and the resulting graph has been shown to be acyclic, so a rejected batch
+// leaves the pedigree exactly as it was.
+//
+// Throws the same exceptions as `set_individual`, plus std::invalid_argument
+// naming an individual on the cycle if the batch would create one.
+void set_individuals(Pedigree<> &pedigree,
+    const std::vector<PedigreeEntry> &entries);
 
 // Removes an individual from the pedigree: it is unlinked from its own
 // parents' children lists, any children pointing to it are orphaned on
 // that side (their father/mother pointer is cleared, since the individual
 // they pointed to no longer exists), and its memory is freed.
 //
+// The position of the individual is read straight off its rank, so no
+// search through `ids` is needed; the remaining cost is the O(N - rank)
+// pass that closes the gap and keeps the ranks dense.
+//
 // Throws std::out_of_range if the ID is not in the pedigree.
 void remove_individual(Pedigree<> &pedigree, int id);
+
+// Removes several individuals in a single pass, closing every gap at once:
+// O(N) for the whole batch rather than O(N) per individual. IDs may be
+// given in any order and may include parents and children of one another.
+//
+// Throws std::out_of_range, without modifying the pedigree, if any of the
+// IDs is not in the pedigree.
+void remove_individuals(Pedigree<> &pedigree, const std::vector<int> &ids);
 
 #endif

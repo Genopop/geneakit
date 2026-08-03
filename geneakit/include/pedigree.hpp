@@ -31,15 +31,21 @@ SOFTWARE.
 
 // A structure to represent a pedigree.
 //
-// `ids` is kept in a valid topological order (a parent always appears
-// before its children), which extraction and traversal code relies on.
-// It is a deque rather than a vector so that edits can grow it from
-// either end in O(1): a newly added individual with at least one known
-// parent is appended at the back (it must come after that parent, who is
-// already somewhere in the deque), while a newly added individual with no
-// known parents is pushed to the front (nothing constrains it to come
-// after anyone, so putting it first leaves it free to be attached as an
-// ancestor of any existing individual later, without moving anyone else).
+// Two invariants hold at all times, on a freshly loaded pedigree and after
+// every edit alike:
+//
+//   (1) `ids` is in a valid topological order: a parent always appears
+//       before its children. Extraction, traversal and the copy
+//       constructor below all rely on this.
+//   (2) `individuals.at(ids[k])->rank == k`, so the ranks are exactly the
+//       dense range 0..N-1 and a rank is also an index. `compute_inbreedings`
+//       indexes its working arrays by rank, `prepare_colleau_pedigree` sorts
+//       by rank as a topological key, and `remove_individual` uses a rank to
+//       find an individual's place in `ids` without searching for it.
+//
+// `ids` is a deque rather than a vector because a pedigree is grown from
+// the back one individual at a time while also being erased from the middle
+// when records are deleted.
 template <typename T = Empty>
 struct Pedigree {
     std::deque<int> ids;
