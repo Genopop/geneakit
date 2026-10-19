@@ -29,23 +29,26 @@ nanobind_add_module(cgeneakit
     geneakit/lib/describe.cpp geneakit/lib/compute.cpp
     geneakit/lib/edit.cpp geneakit/lib/cgeneakit.cpp)
 
-# Find OpenMP compiler flags
+# Find OpenMP. Apple Clang ships without it: use Homebrew's libomp if installed.
+if(APPLE AND NOT DEFINED OpenMP_ROOT)
+  execute_process(COMMAND brew --prefix libomp
+                  OUTPUT_VARIABLE OpenMP_ROOT
+                  OUTPUT_STRIP_TRAILING_WHITESPACE
+                  ERROR_QUIET)
+endif()
 find_package(OpenMP COMPONENTS CXX)
 
-# Add OpenMP flags if found
-if(OpenMP_FOUND)
-  if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS} /O3 /Wall /permissive-")
-  else()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS} -O3 -Wall -Wextra")
-  endif()
+# The imported target carries the compile flags, include directory and library
+if(OpenMP_CXX_FOUND)
   target_link_libraries(cgeneakit PRIVATE OpenMP::OpenMP_CXX)
 else()
-  if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS} /O3 /Wall /permissive-")
-  else()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS} -O3 -Wall -Wextra")
-  endif()
+  message(STATUS "OpenMP not found: geneakit.phi() will run single-threaded")
+endif()
+
+if(MSVC)
+  target_compile_options(cgeneakit PRIVATE /O2 /W4 /permissive-)
+else()
+  target_compile_options(cgeneakit PRIVATE -O3 -Wall -Wextra)
 endif()
 
 install(TARGETS cgeneakit DESTINATION .)
