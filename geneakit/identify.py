@@ -348,8 +348,8 @@ def find_Min_Distance_MRCA(genMatrix, **kwargs):
         min_pairs = []
         for i, proband1 in enumerate(individuals):
             for proband2 in individuals[i+1:]:
-                distance = meioses_matrix.at[proband1, ancestor]
-                + meioses_matrix.at[proband2, ancestor]
+                distance = (meioses_matrix.at[proband1, ancestor]
+                            + meioses_matrix.at[proband2, ancestor])
                 if distance < min_distance:
                     min_distance = distance
                     min_pairs = [(proband1, proband2)]
