@@ -33,7 +33,14 @@ SOFTWARE.
 #include <functional>
 #include <limits>
 #include <math.h>
+
+#ifdef _OPENMP
 #include <omp.h>
+#else  // built without OpenMP: everything runs on one thread
+inline int omp_get_num_threads() { return 1; }
+inline int omp_get_thread_num() { return 0; }
+#endif
+
 #include <queue>
 #include <set>
 #include <tuple>
